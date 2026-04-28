@@ -216,8 +216,8 @@
       <div class="session-row">
         <span class="form-label" style="margin:0;white-space:nowrap;">Join:</span>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;">
-          <input type="text" id="join-code-input" class="form-control" placeholder="CODE"
-            maxlength="6" style="width:80px;" oninput="this.value=this.value.toUpperCase()"
+          <input type="text" id="join-code-input" class="form-control" placeholder="ABCD-WXYZ"
+            maxlength="9" style="width:112px;" oninput="this.value=this.value.toUpperCase()"
             onkeydown="if(event.key==='Enter')doJoin()">
           <button class="btn btn-secondary" onclick="doJoin()">Go</button>
           <span id="join-status" style="font-size:0.7rem;"></span>
@@ -388,16 +388,6 @@
     </div>
   </details>
 
-  <!-- ── Rank Trend Chart ──────────────────────────────────────── -->
-  <details class="card" id="rank-trend-card">
-    <summary class="card-title">📈 Rank Trend</summary>
-    <div>
-      <canvas id="rank-trend-canvas" style="display:block;width:100%;"></canvas>
-      <div id="rank-trend-legend"
-           style="display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px;font-size:0.78rem;"></div>
-    </div>
-  </details>
-
   <!-- ── Player Report ─────────────────────────────────────────── -->
   <details class="card" id="report-card">
     <summary class="card-title">📊 Player Report</summary>
@@ -438,9 +428,19 @@ let _nameDebounceT = null;
 
 function _rndCode() {
   const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({length: 4}, () => c[Math.floor(Math.random() * c.length)]).join('');
+  // 8 chars = ~1 trillion combinations on the shared PeerJS signaling server,
+  // making collisions effectively impossible whether joining by link or typing.
+  // Displayed as ABCD-WXYZ for readability.
+  return Array.from({length: 8}, () => c[Math.floor(Math.random() * c.length)]).join('');
 }
-function _peerId(code) { return 'pb-pairtool-' + code.toUpperCase(); }
+// Display helper: ABCDWXYZ → ABCD-WXYZ
+function _fmtCode(code) {
+  const c = (code || '').replace(/-/g, '');
+  return c.length > 4 ? c.slice(0, 4) + '-' + c.slice(4) : c;
+}
+// Strip display hyphen before using as peer ID or comparison key
+function _rawCode(code) { return (code || '').replace(/-/g, '').toUpperCase(); }
+function _peerId(code) { return 'pb-pairtool-' + _rawCode(code); }
 
 function destroyPeer() {
   if (_peer) { try { _peer.destroy(); } catch(e) {} _peer = null; }
@@ -541,7 +541,7 @@ function startHost() {
 
 function startClient(code) {
   destroyPeer();
-  _sessionCode = code.toUpperCase();
+  _sessionCode = _rawCode(code);
   setJoinStatus('Connecting…', 'muted');
   setPill('off', 'Connecting…');
 
@@ -679,8 +679,8 @@ function applyNetState(incoming, fromHost) {
 function updateNetUI() {
   const codeEl = document.getElementById('session-code');
   const codeInline = document.getElementById('session-code-inline');
-  if (codeEl) codeEl.textContent = _sessionCode || '—';
-  if (codeInline) codeInline.textContent = _sessionCode || '—';
+  if (codeEl) codeEl.textContent = _sessionCode ? _fmtCode(_sessionCode) : '—';
+  if (codeInline) codeInline.textContent = _sessionCode ? _fmtCode(_sessionCode) : '—';
 
   if (_isHost) {
     const n = _conns.filter(c => c.open).length;
@@ -880,7 +880,7 @@ function showQR() {
     colorDark: '#000000', colorLight: '#ffffff',
     correctLevel: QRCode.CorrectLevel.M
   });
-  document.getElementById('qr-code-label').textContent = _sessionCode;
+  document.getElementById('qr-code-label').textContent = _fmtCode(_sessionCode);
   modal.style.display = 'flex';
   modal.onclick = e => { if (e.target === modal) closeQR(); };
 }
@@ -916,9 +916,9 @@ let _pendingJoinCode = '';
 let _showModalAfterSync = false; // flag: show name modal once we receive first state-sync
 
 function doJoin() {
-  const code = (document.getElementById('join-code-input').value || '').trim().toUpperCase();
-  if (code.length < 4) { setJoinStatus('Enter a 4-char code.', 'danger'); return; }
-  _pendingJoinCode = code;
+  const raw = _rawCode(document.getElementById('join-code-input').value || '');
+  if (raw.length < 8) { setJoinStatus('Enter the full 8-character code (e.g. ABCD-WXYZ).', 'danger'); return; }
+  _pendingJoinCode = raw;
   // Connect first so we receive the host's player list, then show the modal
   _showModalAfterSync = true;
   startClient(_pendingJoinCode);
@@ -2111,7 +2111,6 @@ function renderStandings() {
   const standingsPlayers = state.players.filter(p => !p.removed || (p.wins + p.losses) > 0);
   if (!standingsPlayers.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No data yet</td></tr>';
-    drawRankTrendChart();
     return;
   }
   // Sort: win% first, then point diff as tiebreaker
@@ -2139,7 +2138,6 @@ function renderStandings() {
       <td style="color:${diffColor};font-weight:600;">${g === 0 ? '—' : diffStr}</td>
     </tr>`;
   }).join('');
-  drawRankTrendChart();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2208,215 +2206,6 @@ function printStandings() {
       <tbody>${rows}</tbody>
     </table>`;
   window.print();
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// RANK TREND CHART
-// ═══════════════════════════════════════════════════════════════════
-
-// Helper: compute a standings ranking array from player stats accumulated
-// through a given set of rounds (slice of state.rounds).
-function _rankTrendStandings(roundsSlice) {
-  // Accumulate wins / losses / pointDiff per player id from scored courts only
-  const stats = {};
-  for (const p of state.players) {
-    if (p.removed) continue;
-    stats[p.id] = { wins: 0, losses: 0, pointDiff: 0 };
-  }
-  for (const round of roundsSlice) {
-    for (const c of round.courts) {
-      if (c.score1 === null || c.score2 === null) continue;
-      const diff1 = c.score1 - c.score2;
-      const diff2 = -diff1;
-      const w = diff1 > 0 ? 'team1' : diff1 < 0 ? 'team2' : null;
-      for (const id of c.team1) {
-        if (!stats[id]) continue;
-        stats[id].pointDiff += diff1;
-        if (w === 'team1') stats[id].wins++;
-        else if (w === 'team2') stats[id].losses++;
-      }
-      for (const id of c.team2) {
-        if (!stats[id]) continue;
-        stats[id].pointDiff += diff2;
-        if (w === 'team2') stats[id].wins++;
-        else if (w === 'team1') stats[id].losses++;
-      }
-    }
-  }
-  // Sort same way as renderStandings: win% desc, then pointDiff desc
-  const players = state.players.filter(p => !p.removed && p.name.trim());
-  const sorted = [...players].sort((a, b) => {
-    const sa = stats[a.id] || { wins: 0, losses: 0, pointDiff: 0 };
-    const sb = stats[b.id] || { wins: 0, losses: 0, pointDiff: 0 };
-    const ga = sa.wins + sa.losses, gb = sb.wins + sb.losses;
-    const wa = ga === 0 ? -1 : sa.wins / ga;
-    const wb = gb === 0 ? -1 : sb.wins / gb;
-    if (wb !== wa) return wb - wa;
-    return (sb.pointDiff || 0) - (sa.pointDiff || 0);
-  });
-  // Return { [playerId]: rank (1-based) }
-  const rankMap = {};
-  sorted.forEach((p, i) => { rankMap[p.id] = i + 1; });
-  return rankMap;
-}
-
-// DASH_PATTERNS: 5 distinct dash styles cycled across players
-const _RANK_DASH_PATTERNS = [
-  [],
-  [8, 4],
-  [2, 4],
-  [10, 4, 2, 4],
-  [6, 3, 2, 3, 2, 3],
-];
-
-function drawRankTrendChart() {
-  const canvas = document.getElementById('rank-trend-canvas');
-  const legend = document.getElementById('rank-trend-legend');
-  if (!canvas || !legend) return;
-
-  const activePlayers = state.players.filter(p => !p.removed && p.name.trim());
-  if (!activePlayers.length) {
-    legend.innerHTML = '<span style="color:var(--muted);">No players yet.</span>';
-    canvas.style.display = 'none';
-    return;
-  }
-
-  // Find rounds that have at least one fully scored court
-  const scoredRounds = state.rounds
-    .map((r, i) => ({ round: r, idx: i }))
-    .filter(({ round }) => round.courts.some(c => c.score1 !== null && c.score2 !== null));
-
-  if (!scoredRounds.length) {
-    legend.innerHTML = '<span style="color:var(--muted);">No scored rounds yet.</span>';
-    canvas.style.display = 'none';
-    return;
-  }
-  canvas.style.display = 'block';
-
-  // Build rank history: for each scored round, compute standings through that round
-  const roundLabels = [];
-  const ranksByRound = {}; // { playerId: [rank, rank, ...] }
-  activePlayers.forEach(p => { ranksByRound[p.id] = []; });
-
-  scoredRounds.forEach(({ idx }) => {
-    const slice = state.rounds.slice(0, idx + 1);
-    const rankMap = _rankTrendStandings(slice);
-    roundLabels.push('R' + state.rounds[idx].roundNum);
-    activePlayers.forEach(p => {
-      ranksByRound[p.id].push(rankMap[p.id] != null ? rankMap[p.id] : null);
-    });
-  });
-
-  const COLORS = [
-    '#5EC26A','#F5C842','#5B9BD5','#E07B54','#A78BFA',
-    '#34D399','#FB7185','#60A5FA','#FBBF24','#A3E635',
-    '#38BDF8','#F472B6','#4ADE80','#FB923C','#818CF8',
-    '#E879F9','#2DD4BF','#FCA5A5','#86EFAC','#93C5FD',
-  ];
-
-  const PAD = { top: 24, right: 20, bottom: 36, left: 40 };
-  const W   = Math.max(canvas.parentElement.clientWidth || 600, 280);
-  const H   = Math.max(220, Math.min(400, W * 0.45));
-  canvas.width  = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
-
-  const maxRank = activePlayers.length;
-  const plotW   = W - PAD.left - PAD.right;
-  const plotH   = H - PAD.top  - PAD.bottom;
-  const n       = scoredRounds.length;
-
-  // Grid lines + Y-axis rank labels
-  ctx.font      = '11px system-ui, sans-serif';
-  ctx.textAlign = 'right';
-  const rankStep = maxRank <= 10 ? 1 : maxRank <= 20 ? 2 : 5;
-  for (let r = 1; r <= maxRank; r += rankStep) {
-    const y = PAD.top + ((r - 1) / (maxRank - 1 || 1)) * plotH;
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth   = 1;
-    ctx.setLineDash([]);
-    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillText(r, PAD.left - 6, y + 4);
-  }
-
-  // X-axis round labels
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  roundLabels.forEach((lbl, i) => {
-    const x = PAD.left + (i / (n - 1 || 1)) * plotW;
-    ctx.fillText(lbl, x, H - PAD.bottom + 16);
-  });
-
-  // Y-axis label
-  ctx.save();
-  ctx.translate(12, PAD.top + plotH / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.font = '10px system-ui, sans-serif';
-  ctx.fillText('Rank', 0, 0);
-  ctx.restore();
-
-  const drawLine = (player, pi) => {
-    const color  = COLORS[pi % COLORS.length];
-    const dash   = _RANK_DASH_PATTERNS[pi % _RANK_DASH_PATTERNS.length];
-    const ranks  = ranksByRound[player.id];
-    const points = ranks.map((r, i) => {
-      if (r === null) return null;
-      return {
-        x: PAD.left + (i / (n - 1 || 1)) * plotW,
-        y: PAD.top  + ((r - 1) / (maxRank - 1 || 1)) * plotH,
-      };
-    });
-
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 2.5;
-    ctx.lineJoin    = 'round';
-    ctx.setLineDash(dash);
-    ctx.beginPath();
-    let started = false;
-    points.forEach(pt => {
-      if (!pt) { started = false; return; }
-      if (!started) { ctx.moveTo(pt.x, pt.y); started = true; }
-      else ctx.lineTo(pt.x, pt.y);
-    });
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Dots
-    points.forEach(pt => {
-      if (!pt) return;
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle   = color;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.lineWidth   = 1.5;
-      ctx.stroke();
-    });
-  };
-
-  activePlayers.forEach((player, pi) => drawLine(player, pi));
-  ctx.setLineDash([]);
-
-  // Legend
-  legend.innerHTML = activePlayers.map((p, pi) => {
-    const color     = COLORS[pi % COLORS.length];
-    const dash      = _RANK_DASH_PATTERNS[pi % _RANK_DASH_PATTERNS.length];
-    const dashArray = dash.length ? dash.join(',') : 'none';
-    const svgLine   = `<svg width="28" height="10" style="vertical-align:middle;overflow:visible">
-      <line x1="0" y1="5" x2="28" y2="5"
-        stroke="${color}" stroke-width="2.5"
-        stroke-dasharray="${dashArray}"/>
-    </svg>`;
-    return `<span style="display:flex;align-items:center;gap:5px;white-space:nowrap;">
-      ${svgLine}
-      <span style="color:rgba(255,255,255,0.75);">${p.name.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>
-    </span>`;
-  }).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -3290,10 +3079,10 @@ updateMyPlayerDisplay();
 const _urlCode = new URLSearchParams(window.location.search).get('code');
 if (_urlCode) {
   // Pre-fill the join input so the user sees what code they joined
-  document.getElementById('join-code-input').value = _urlCode.toUpperCase();
+  document.getElementById('join-code-input').value = _fmtCode(_urlCode.toUpperCase());
   // Connect first so we receive the host's player list, then show the modal
   _showModalAfterSync = true;
-  startClient(_urlCode.toUpperCase());
+  startClient(_rawCode(_urlCode));
 } else {
   startHost();
 }
@@ -3588,15 +3377,6 @@ function pwaDismiss() {
 
 // Initial UI state for notifications
 updateNotifUI();
-
-// Redraw rank trend chart on window resize
-window.addEventListener('resize', () => {
-  if (document.getElementById('rank-trend-card')?.open) drawRankTrendChart();
-});
-// Redraw when the card is opened (lazy — avoids drawing into a zero-width canvas)
-document.getElementById('rank-trend-card')?.addEventListener('toggle', e => {
-  if (e.target.open) drawRankTrendChart();
-});
 </script>
 </body>
 </html>
