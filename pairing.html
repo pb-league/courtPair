@@ -9,7 +9,13 @@
   <meta name="apple-mobile-web-app-title" content="courtPair">
   <meta name="theme-color" content="#0d1b2a">
   <meta name="description" content="Fair court pairings for pickleball leagues">
-  <link rel="stylesheet" href="css/pairing.css">
+  <!-- Cache control: tells browsers not to serve stale versions -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <!-- APP_VERSION: increment this when deploying to bust phone/tablet cache -->
+  <meta name="app-version" content="1.0.1">
+  <link rel="stylesheet" href="css/pairing.css?v=1.0.1">
   <title>Pairing Tool — Pickleball League</title>
   
   <style>
@@ -446,33 +452,45 @@ function _fmtCode(code) {
   const c = (code || '').replace(/-/g, '');
   return c.length > 4 ? c.slice(0, 4) + '-' + c.slice(4) : c;
 }
-function _rawCode(code) { return (code || '').replace(/-/g, '').toUpperCase(); }
+function _rawCode(code) { return (code || '').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 8); }
 function _peerId(code) { return 'pb-pairtool-' + _rawCode(code); }
 
 // ICE config: multiple STUN + TURN relay for phones on mobile / restrictive WiFi
-const _ICE_CONFIG = {
+// Fetch fresh TURN credentials from Metered at connection time.
+// This guarantees working relay servers — hardcoded free-tier servers
+// (freestun, openrelay) have proven unreliable / completely unresponsive.
+// The free Metered plan provides 500 MB/month which is ample for JSON sync.
+// STUN-only config — works for most users (same LAN, or typical NAT).
+// Free, no quota, no latency cost.
+const _STUN_CONFIG = {
+  iceTransportPolicy: 'all',
   iceServers: [
-    // Multiple STUN servers for redundancy
     { urls: 'stun:stun.l.google.com:19302'  },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478'  },
-    // freestun.net — free TURN with no account, credentials are literally "free"/"free"
-    { urls: 'stun:freestun.net:3478' },
-    { urls: 'stun:freestun.net:5350' },
-    { urls: 'turn:freestun.net:3478',
-      username: 'free', credential: 'free' },
-    { urls: 'turns:freestun.net:5350',
-      username: 'free', credential: 'free' },
-    // openrelay as additional fallback
-    { urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
   ]
 };
+
+// Fetch Metered TURN credentials — only called when STUN-only fails.
+// Conserves the 500 MB/month free quota for users who actually need relay
+// (AP isolation, symmetric NAT, cellular↔wifi cross-network, etc.)
+async function _getTurnConfig() {
+  try {
+    const res = await fetch(
+      'https://pbmanager.metered.live/api/v1/turn/credentials?apiKey=a9ea53c00bca5ea5b93afa8f85103f3afc40'
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const iceServers = await res.json();
+    console.log('Metered TURN credentials fetched, retrying with relay.');
+    return { iceTransportPolicy: 'all', iceServers };
+  } catch (e) {
+    console.warn('Metered TURN fetch failed:', e);
+    return null;   // caller will handle null
+  }
+}
 
 function destroyPeer() {
   if (_peer) { try { _peer.destroy(); } catch(e) {} _peer = null; }
@@ -482,7 +500,7 @@ function destroyPeer() {
 function startHost() {
   destroyPeer();
   _sessionCode = _rndCode();
-  _peer = new Peer(_peerId(_sessionCode), { debug: 0, config: _ICE_CONFIG });
+  _peer = new Peer(_peerId(_sessionCode), { debug: 0, config: _STUN_CONFIG });
 
   _peer.on('open', () => {
     _isHost = true;
@@ -571,29 +589,57 @@ function startHost() {
   });
 }
 
-function startClient(code) {
+// _startClientWithConfig: internal — creates the PeerJS client with a given ICE config.
+// Called first with STUN-only; if ICE fails within STUN_TIMEOUT ms, transparently
+// fetches Metered TURN credentials and retries once automatically.
+const _STUN_TIMEOUT = 8000; // ms to wait before assuming STUN-only won't work
+
+async function startClient(code) {
   destroyPeer();
   _sessionCode = _rawCode(code);
-  setJoinStatus('Step 1/3: reaching signaling server…', 'muted');
+  setJoinStatus('Connecting…', 'muted');
   setPill('off', 'Connecting…');
+  _attemptConnection(_STUN_CONFIG, false);
+}
 
-  _peer = new Peer({ debug: 0, config: _ICE_CONFIG });
+async function _attemptConnection(iceConfig, isTurnRetry) {
+  destroyPeer();
+  if (isTurnRetry) {
+    setJoinStatus('Trying relay servers…', 'muted');
+  } else {
+    setJoinStatus('Connecting (direct)…', 'muted');
+  }
+
+  _peer = new Peer({ debug: 0, config: iceConfig });
+
   _peer.on('open', () => {
-    setJoinStatus('Step 2/3: contacting host (ICE / NAT traversal)…', 'muted');
     _hostConn = _peer.connect(_peerId(_sessionCode), { reliable: true });
 
-    // Allow up to 20 s for ICE — TURN relay can be slow on first use
-    const timeout = setTimeout(() => {
+    // If STUN-only, give it a few seconds before trying TURN
+    const stunFallbackTimer = isTurnRetry ? null : setTimeout(async () => {
       if (!_hostConn || !_hostConn.open) {
-        setJoinStatus('Could not reach host after 20 s. Check the code and that the host tab is open.', 'danger');
-        // Don't silently become a host — keep error visible so user can retry
+        setJoinStatus('Direct connection slow, trying relay servers…', 'muted');
+        const turnConfig = await _getTurnConfig();
+        if (turnConfig) {
+          _attemptConnection(turnConfig, true);
+        } else {
+          setJoinStatus('Could not reach host. Check the code and that the host tab is open.', 'danger');
+        }
       }
-    }, 20000);
+    }, _STUN_TIMEOUT);
+
+    // Final timeout for TURN retry
+    const finalTimeout = isTurnRetry ? setTimeout(() => {
+      if (!_hostConn || !_hostConn.open) {
+        setJoinStatus('Could not reach host. The network may be blocking connections.', 'danger');
+      }
+    }, 20000) : null;
 
     _hostConn.on('open', () => {
-      clearTimeout(timeout);
+      if (stunFallbackTimer) clearTimeout(stunFallbackTimer);
+      if (finalTimeout) clearTimeout(finalTimeout);
       _isHost = false;
-      setJoinStatus('Step 3/3: syncing state…', 'muted');
+      setJoinStatus('', '');
       updateNetUI();
       updateMyPlayerDisplay();
       applyLockUI();
@@ -610,8 +656,18 @@ function startClient(code) {
       setJoinStatus('Host disconnected', 'warn');
     });
     _hostConn.on('error', e => {
-      clearTimeout(timeout);
-      setJoinStatus('WebRTC error: ' + (e.type || e), 'danger');
+      if (stunFallbackTimer) clearTimeout(stunFallbackTimer);
+      if (finalTimeout) clearTimeout(finalTimeout);
+      // On negotiation-failed with STUN-only, auto-retry with TURN
+      if (!isTurnRetry && (e.type === 'negotiation-failed' || e.type === 'connection-error')) {
+        setJoinStatus('Direct connection failed, trying relay servers…', 'muted');
+        _getTurnConfig().then(turnConfig => {
+          if (turnConfig) _attemptConnection(turnConfig, true);
+          else setJoinStatus('Connection failed. Check the code and that the host tab is open.', 'danger');
+        });
+      } else {
+        setJoinStatus('Connection failed: ' + (e.type || e), 'danger');
+      }
     });
   });
   _peer.on('error', e => {
