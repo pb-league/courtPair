@@ -216,7 +216,7 @@
       <div class="session-row">
         <span class="form-label" style="margin:0;white-space:nowrap;">Join:</span>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;">
-          <input type="text" id="join-code-input" class="form-control" placeholder="ABCD-WXYZ"
+          <input type="text" id="join-code-input" class="form-control" placeholder="ABCDWXYZ"
             maxlength="9" style="width:112px;" oninput="this.value=this.value.toUpperCase()"
             onkeydown="if(event.key==='Enter')doJoin()">
           <button class="btn btn-secondary" onclick="doJoin()">Go</button>
@@ -714,8 +714,8 @@ function applyNetState(incoming, fromHost) {
 function updateNetUI() {
   const codeEl = document.getElementById('session-code');
   const codeInline = document.getElementById('session-code-inline');
-  if (codeEl) codeEl.textContent = _sessionCode ? _fmtCode(_sessionCode) : '—';
-  if (codeInline) codeInline.textContent = _sessionCode ? _fmtCode(_sessionCode) : '—';
+  if (codeEl) codeEl.textContent = _sessionCode || '—';
+  if (codeInline) codeInline.textContent = _sessionCode || '—';
 
   if (_isHost) {
     const n = _conns.filter(c => c.open).length;
@@ -915,7 +915,7 @@ function showQR() {
     colorDark: '#000000', colorLight: '#ffffff',
     correctLevel: QRCode.CorrectLevel.M
   });
-  document.getElementById('qr-code-label').textContent = _fmtCode(_sessionCode);
+  document.getElementById('qr-code-label').textContent = _sessionCode;
   modal.style.display = 'flex';
   modal.onclick = e => { if (e.target === modal) closeQR(); };
 }
@@ -952,7 +952,7 @@ let _showModalAfterSync = false; // flag: show name modal once we receive first 
 
 function doJoin() {
   const raw = _rawCode(document.getElementById('join-code-input').value || '');
-  if (raw.length < 8) { setJoinStatus('Enter the full 8-character code (e.g. ABCD-WXYZ).', 'danger'); return; }
+  if (raw.length < 8) { setJoinStatus('Enter the full 8-character code (e.g. ABCDWXYZ).', 'danger'); return; }
   _pendingJoinCode = raw;
   // Connect first so we receive the host's player list, then show the modal
   _showModalAfterSync = true;
@@ -3309,7 +3309,7 @@ updateMyPlayerDisplay();
 const _urlCode = new URLSearchParams(window.location.search).get('code');
 if (_urlCode) {
   // Pre-fill the join input so the user sees what code they joined
-  document.getElementById('join-code-input').value = _fmtCode(_urlCode.toUpperCase());
+  document.getElementById('join-code-input').value = _rawCode(_urlCode);
   // Connect first so we receive the host's player list, then show the modal
   _showModalAfterSync = true;
   startClient(_rawCode(_urlCode));
