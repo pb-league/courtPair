@@ -216,8 +216,8 @@
       <div class="session-row">
         <span class="form-label" style="margin:0;white-space:nowrap;">Join:</span>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;">
-          <input type="text" id="join-code-input" class="form-control" placeholder="ABCD-WXYZ"
-            maxlength="9" style="width:112px;" oninput="this.value=this.value.toUpperCase()"
+          <input type="text" id="join-code-input" class="form-control" placeholder="CODE"
+            maxlength="6" style="width:80px;" oninput="this.value=this.value.toUpperCase()"
             onkeydown="if(event.key==='Enter')doJoin()">
           <button class="btn btn-secondary" onclick="doJoin()">Go</button>
           <span id="join-status" style="font-size:0.7rem;"></span>
@@ -428,19 +428,32 @@ let _nameDebounceT = null;
 
 function _rndCode() {
   const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  // 8 chars = ~1 trillion combinations on the shared PeerJS signaling server,
-  // making collisions effectively impossible whether joining by link or typing.
-  // Displayed as ABCD-WXYZ for readability.
-  return Array.from({length: 8}, () => c[Math.floor(Math.random() * c.length)]).join('');
+  return Array.from({length: 4}, () => c[Math.floor(Math.random() * c.length)]).join('');
 }
-// Display helper: ABCDWXYZ → ABCD-WXYZ
-function _fmtCode(code) {
-  const c = (code || '').replace(/-/g, '');
-  return c.length > 4 ? c.slice(0, 4) + '-' + c.slice(4) : c;
-}
-// Strip display hyphen before using as peer ID or comparison key
-function _rawCode(code) { return (code || '').replace(/-/g, '').toUpperCase(); }
-function _peerId(code) { return 'pb-pairtool-' + _rawCode(code); }
+function _peerId(code) { return 'pb-pairtool-' + code.toUpperCase(); }
+
+// ICE server config: multiple STUN servers (no account needed) + a public
+// TURN server for NAT traversal when STUN alone fails (e.g. phone on mobile
+// data or a WiFi network with AP isolation / symmetric NAT).
+// openrelay.metered.ca is a genuinely free public TURN service; credentials
+// are intentionally public and published by the Open Relay Project.
+const _ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302'  },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478'  },
+    // TURN relay — used only when all STUN candidates fail
+    { urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+  ]
+};
 
 function destroyPeer() {
   if (_peer) { try { _peer.destroy(); } catch(e) {} _peer = null; }
@@ -450,7 +463,7 @@ function destroyPeer() {
 function startHost() {
   destroyPeer();
   _sessionCode = _rndCode();
-  _peer = new Peer(_peerId(_sessionCode), { debug: 0 });
+  _peer = new Peer(_peerId(_sessionCode), { debug: 0, config: _ICE_CONFIG });
 
   _peer.on('open', () => {
     _isHost = true;
@@ -541,11 +554,11 @@ function startHost() {
 
 function startClient(code) {
   destroyPeer();
-  _sessionCode = _rawCode(code);
+  _sessionCode = code.toUpperCase();
   setJoinStatus('Connecting…', 'muted');
   setPill('off', 'Connecting…');
 
-  _peer = new Peer({ debug: 0 });
+  _peer = new Peer({ debug: 0, config: _ICE_CONFIG });
   _peer.on('open', () => {
     _hostConn = _peer.connect(_peerId(_sessionCode), { reliable: true });
     const timeout = setTimeout(() => {
@@ -679,8 +692,8 @@ function applyNetState(incoming, fromHost) {
 function updateNetUI() {
   const codeEl = document.getElementById('session-code');
   const codeInline = document.getElementById('session-code-inline');
-  if (codeEl) codeEl.textContent = _sessionCode ? _fmtCode(_sessionCode) : '—';
-  if (codeInline) codeInline.textContent = _sessionCode ? _fmtCode(_sessionCode) : '—';
+  if (codeEl) codeEl.textContent = _sessionCode || '—';
+  if (codeInline) codeInline.textContent = _sessionCode || '—';
 
   if (_isHost) {
     const n = _conns.filter(c => c.open).length;
@@ -880,7 +893,7 @@ function showQR() {
     colorDark: '#000000', colorLight: '#ffffff',
     correctLevel: QRCode.CorrectLevel.M
   });
-  document.getElementById('qr-code-label').textContent = _fmtCode(_sessionCode);
+  document.getElementById('qr-code-label').textContent = _sessionCode;
   modal.style.display = 'flex';
   modal.onclick = e => { if (e.target === modal) closeQR(); };
 }
@@ -916,9 +929,9 @@ let _pendingJoinCode = '';
 let _showModalAfterSync = false; // flag: show name modal once we receive first state-sync
 
 function doJoin() {
-  const raw = _rawCode(document.getElementById('join-code-input').value || '');
-  if (raw.length < 8) { setJoinStatus('Enter the full 8-character code (e.g. ABCD-WXYZ).', 'danger'); return; }
-  _pendingJoinCode = raw;
+  const code = (document.getElementById('join-code-input').value || '').trim().toUpperCase();
+  if (code.length < 4) { setJoinStatus('Enter a 4-char code.', 'danger'); return; }
+  _pendingJoinCode = code;
   // Connect first so we receive the host's player list, then show the modal
   _showModalAfterSync = true;
   startClient(_pendingJoinCode);
@@ -3079,10 +3092,10 @@ updateMyPlayerDisplay();
 const _urlCode = new URLSearchParams(window.location.search).get('code');
 if (_urlCode) {
   // Pre-fill the join input so the user sees what code they joined
-  document.getElementById('join-code-input').value = _fmtCode(_urlCode.toUpperCase());
+  document.getElementById('join-code-input').value = _urlCode.toUpperCase();
   // Connect first so we receive the host's player list, then show the modal
   _showModalAfterSync = true;
-  startClient(_rawCode(_urlCode));
+  startClient(_urlCode.toUpperCase());
 } else {
   startHost();
 }
