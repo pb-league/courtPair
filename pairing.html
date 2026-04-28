@@ -1,0 +1,3362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="courtPair">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="description" content="Fair court pairings for pickleball leagues">
+  <link rel="stylesheet" href="css/pairing.css">
+  <title>Pairing Tool — Pickleball League</title>
+  
+  <style>
+    /* ── Tooltip ──────────────────────────────────────────────── */
+    [data-tooltip] {
+      position: relative;
+    }
+    [data-tooltip]::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e2f42;
+      color: #d4e4f7;
+      font-size: 0.72rem;
+      line-height: 1.45;
+      font-family: system-ui, sans-serif;
+      font-weight: 400;
+      padding: 7px 10px;
+      border-radius: 7px;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      white-space: normal;
+      width: max-content;
+      max-width: 240px;
+      text-align: center;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      z-index: 9999;
+    }
+    [data-tooltip]:hover::after,
+    [data-tooltip]:focus-visible::after {
+      opacity: 1;
+    }
+    /* ── Court scorecard: constrain player name selects ─────────── */
+    .matchup {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+    }
+    .team-block {
+      flex: 1 1 0 !important;
+      min-width: 0 !important;
+      width: 0 !important;         /* force flex shrink below intrinsic content size */
+      overflow: hidden !important;
+    }
+    .team-players {
+      min-width: 0;
+      overflow: hidden;
+    }
+    .player-slot-sel {
+      display: block;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      box-sizing: border-box;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="js/tournament.js"></script>
+</head>
+<body class="court-bg">
+
+<div id="print-area"></div>
+
+<div id="join-name-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;">
+  <div style="background:var(--navy-mid);border:1px solid rgba(255,255,255,0.12);border-radius:var(--radius-lg);padding:26px 28px;max-width:360px;width:92%;box-shadow:var(--shadow);">
+    <div style="font-family:var(--font-display);font-size:1rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Join Session</div>
+    <div style="font-size:0.78rem;color:var(--muted);margin-bottom:16px;">Who are you? Select your name or add yourself as a new player.</div>
+    <label class="form-label" style="margin-bottom:4px;display:block;">Your Name</label>
+    <select id="jnm-player-sel" class="form-control" style="width:100%;margin-bottom:10px;" onchange="onJoinNameSelChange(this.value)">
+      <option value="">— select your name —</option>
+    </select>
+    <div id="jnm-new-row" style="display:none;margin-bottom:10px;">
+      <input type="text" id="jnm-new-name" class="form-control" placeholder="Enter your name…" style="width:100%;box-sizing:border-box;" maxlength="40">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn btn-secondary" onclick="cancelJoin()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmJoinName()">Connect</button>
+    </div>
+  </div>
+</div>
+
+<div id="import-mode-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;">
+  <div style="background:var(--navy-mid);border:1px solid rgba(255,255,255,0.12);border-radius:var(--radius-lg);padding:26px 28px;max-width:400px;width:92%;box-shadow:var(--shadow);">
+    <div style="font-family:var(--font-display);font-size:1rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;">Import Data</div>
+    <div id="imm-filename" style="font-size:0.75rem;color:var(--muted);margin-bottom:16px;word-break:break-all;"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border-radius:var(--radius);border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);">
+        <input type="radio" name="import-mode" value="full" checked style="margin-top:3px;accent-color:var(--green);flex-shrink:0;">
+        <div>
+          <div style="font-weight:600;font-size:0.85rem;">Import everything</div>
+          <div style="font-size:0.72rem;color:var(--muted);margin-top:2px;">Replaces all players, scores, rounds, and settings.</div>
+        </div>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border-radius:var(--radius);border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);">
+        <input type="radio" name="import-mode" value="roster" style="margin-top:3px;accent-color:var(--green);flex-shrink:0;">
+        <div>
+          <div style="font-weight:600;font-size:0.85rem;">Roster &amp; settings only</div>
+          <div style="font-size:0.72rem;color:var(--muted);margin-top:2px;">Imports players (names, gender, initial rank) and league settings — courts, format, pairing mode, weights, group name. Skips all rounds and scores.</div>
+        </div>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="cancelImport()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmImport()">Import</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── PWA Install Banner ──────────────────────────────────── -->
+<div id="pwa-install-banner">
+  <span class="pwa-icon">🏓</span>
+  <div class="pwa-text">
+    <strong>Add to Home Screen</strong>
+    Get quick access — works offline too
+  </div>
+  <button class="btn btn-primary" id="pwa-install-btn" onclick="pwaInstall()" style="white-space:nowrap;flex-shrink:0;">Install</button>
+  <button onclick="pwaDismiss()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;padding:2px 4px;flex-shrink:0;">✕</button>
+</div>
+<div id="qr-modal" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+  <div style="background:var(--navy-mid);border:1px solid rgba(255,255,255,0.1);border-radius:var(--radius-lg);padding:24px 28px;max-width:320px;width:90%;text-align:center;box-shadow:var(--shadow);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <span style="font-family:var(--font-display);font-size:1rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;">Join Session</span>
+      <button onclick="closeQR()" style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;line-height:1;padding:0 2px;">✕</button>
+    </div>
+    <div id="qr-canvas" style="display:inline-block;background:white;padding:12px;border-radius:8px;margin-bottom:14px;"></div>
+    <div style="font-family:var(--font-display);font-size:1.6rem;font-weight:800;letter-spacing:0.22em;color:var(--green);margin-bottom:6px;" id="qr-code-label"></div>
+    <div style="font-size:0.72rem;color:var(--muted);">Scan to join this session</div>
+  </div>
+</div>
+
+<div class="topbar">
+  <div class="topbar-brand">
+    <input type="text" id="group-name" class="group-name-input" placeholder="Group Name"
+      maxlength="60" oninput="onGroupNameChange(this.value)">
+  </div>
+  <div class="topbar-right">
+    <button class="btn btn-secondary" onclick="exportData()">⬇ Export</button>
+    <label class="btn btn-secondary" style="cursor:pointer;">
+      ⬆ Import
+      <input type="file" accept=".json" id="import-file" style="display:none" onchange="importPickMode(event)">
+    </label>
+  </div>
+</div>
+
+<div class="page-wrap">
+
+  <!-- ── Session Bar ───────────────────────────────────────────── -->
+  <details class="card" id="session-card">
+    <summary class="card-title" style="display:flex;align-items:center;gap:10px;">
+      <span>📡 Session</span>
+      <span id="session-code-inline" class="session-code-big" style="font-size:1.1rem;letter-spacing:0.16em;">—</span>
+      <span id="net-pill" class="net-pill off" style="margin-right:auto;"><span class="dot"></span><span id="net-pill-text">Starting…</span></span>
+      <span id="role-badge" style="display:none;font-size:0.62rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;padding:2px 7px;border-radius:20px;background:rgba(100,160,255,0.12);color:#7ab4f5;border:0.5px solid rgba(100,160,255,0.3);"></span>
+    </summary>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+
+      <!-- Row 1: code + share buttons -->
+      <div class="session-row">
+        <span class="form-label" style="margin:0;white-space:nowrap;">Code</span>
+        <span id="session-code" class="session-code-big">—</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-secondary" id="copy-url-btn" onclick="copyShareURL()" disabled
+            data-tooltip="Share this link with others so they can view live results and enter scores in this session.">📋 Copy Link</button>
+          <button class="btn btn-secondary" id="qr-url-btn" onclick="showQR()" disabled>◼ QR Code</button>
+        </div>
+      </div>
+
+      <div class="session-divider-h"></div>
+
+      <!-- Row 2: My Player + notification opt-in -->
+      <div class="session-row" id="my-player-row">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;">
+          <span class="form-label" style="margin:0;white-space:nowrap;">I am:</span>
+          <span id="my-player-display" style="font-weight:600;color:var(--white);"></span>
+          <span class="tt-wrap" style="display:contents;">
+            <button id="notif-btn" class="btn btn-secondary" onclick="requestNotifPermission()" style="display:none;"
+              data-tooltip="Alerts only work when the app is saved to your desktop (installed as PWA) and you have authorized notifications in your browser or OS settings.">
+              🔔 Enable Alerts
+            </button>
+          </span>
+          <span id="notif-status" style="font-size:0.68rem;color:var(--muted);"></span>
+          <span id="my-role-display" style="font-size:0.68rem;color:var(--muted);"></span>
+        </div>
+      </div>
+
+      <div class="session-divider-h"></div>
+
+      <!-- Row 3: Join another session -->
+      <div class="session-row">
+        <span class="form-label" style="margin:0;white-space:nowrap;">Join:</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;">
+          <input type="text" id="join-code-input" class="form-control" placeholder="CODE"
+            maxlength="6" style="width:80px;" oninput="this.value=this.value.toUpperCase()"
+            onkeydown="if(event.key==='Enter')doJoin()">
+          <button class="btn btn-secondary" onclick="doJoin()">Go</button>
+          <span id="join-status" style="font-size:0.7rem;"></span>
+        </div>
+      </div>
+
+    </div>
+  </details>
+
+  <!-- ── Settings ─────────────────────────────────────────────── -->
+  <details class="card" id="settings-card" open>
+    <summary class="card-title"><span>⚙ Settings</span><span class="summary-hint" id="hint-settings"></span></summary>
+    <div class="settings-row">
+      <div class="form-group">
+        <label class="form-label">Courts</label>
+        <input type="number" class="form-control" id="num-courts" min="1" max="30"
+          value="2" style="width:72px" oninput="onSettingsChange()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Format</label>
+        <select class="form-control" id="game-mode" onchange="onSettingsChange()" style="width:148px;">
+          <option value="singles">Singles</option>
+          <option value="doubles" selected>Doubles</option>
+          <option value="mixed-doubles">Mixed Doubles</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Rankings Based On</label>
+        <select class="form-control" id="ranking-mode" onchange="onSettingsChange()" style="width:166px;">
+          <option value="winPct">Current standings</option>
+          <option value="initial">Initial Ranking</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Pairing Mode</label>
+        <select class="form-control" id="pairing-mode" onchange="onPairingModeChange()" style="width:176px;">
+          <option value="normal">Normal (Round Robin)</option>
+          <option value="single">Single Elimination</option>
+          <option value="double">Double Elimination</option>
+          <option value="rr">Reseeded (Doubles)</option>
+          <option value="rr-singles">Reseeded (Singles)</option>
+        </select>
+      </div>
+    </div>
+  </details>
+
+  <!-- ── Players ───────────────────────────────────────────────── -->
+  <details class="card" id="players-card" open>
+    <summary class="card-title"><span>👥 Players</span><span class="summary-hint" id="hint-players"></span></summary>
+    <div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+        <button class="btn btn-primary" onclick="addPlayer()">+ Add Player</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th style="width:50px;text-align:center;" id="gender-th">M/F/E</th>
+              <th style="width:88px;text-align:center;" title="Used for team equalization or grouping like-ranked players when 'Ranking based on' is set to 'Initial ranking'. Lower number = better.">Init Rank</th>
+              <th style="width:44px;text-align:center;" title="Players assigned courts since this player last played">Wait</th>
+              <th style="width:46px;text-align:center;" title="Exclude from future rounds">Sit Out</th>
+              <th style="width:42px;text-align:center;" id="role-th" title="Role: H=Host, A=Admin, S=Scorer, P=Player">Role</th>
+              <th style="width:36px;"></th>
+            </tr>
+          </thead>
+          <tbody id="players-tbody">
+            <tr><td colspan="4" class="empty-state">No players yet — click Add Player</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+
+  <!-- ── Pairing Weights ───────────────────────────────────────── -->
+  <details class="card" id="weights-card">
+    <summary class="card-title"><span>⚖ Pairing Weights</span><span class="summary-hint" id="hint-weights"></span></summary>
+    <div>
+      <div class="slider-row">
+        <span class="slider-label">Avoid repeat opponents</span>
+        <input type="range" min="0" max="10" value="5" id="w-opp" oninput="updateSlider(this,'v-opp')">
+        <span class="slider-value" id="v-opp">5</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">Avoid repeat partners</span>
+        <input type="range" min="0" max="10" value="5" id="w-prt" oninput="updateSlider(this,'v-prt')">
+        <span class="slider-value" id="v-prt">5</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">Fair games (balanced avg skill)</span>
+        <input type="range" min="0" max="10" value="5" id="w-fair" oninput="updateSlider(this,'v-fair')">
+        <span class="slider-value" id="v-fair">5</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">Like-skilled court</span>
+        <input type="range" min="0" max="10" value="5" id="w-like" oninput="updateSlider(this,'v-like')">
+        <span class="slider-value" id="v-like">5</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">Prioritize long waiters</span>
+        <input type="range" min="0" max="10" value="5" id="w-wait" oninput="updateSlider(this,'v-wait')">
+        <span class="slider-value" id="v-wait">5</span>
+      </div>
+      <p style="font-size:0.7rem;color:var(--muted);margin-top:2px;line-height:1.55;">
+        All factors normalized 0–1. Repeat = binary (penalized once per prior encounter).
+        Fair games = |avg team skill diff|. Like-skilled = skill std-dev across court.
+        <strong style="color:var(--white);">Long waiters</strong> = players who sat out while others played are prioritized for court assignment.
+        Mixed-doubles gender preference (weight 20) overrides all sliders.
+      </p>
+    </div>
+  </details>
+
+  <!-- ── Tournament ───────────────────────────────────────────── -->
+  <details class="card" id="tournament-card" style="display:none;" open>
+    <summary class="card-title">🏆 Tournament Bracket</summary>
+    <div id="tournament-inner">
+      <div class="empty-state">Select a tournament mode in Settings to begin.</div>
+    </div>
+  </details>
+
+  <!-- ── Rounds ────────────────────────────────────────────────── -->
+  <details class="card" id="rounds-card" open>
+    <summary class="card-title"><span>🏓 Rounds</span><span class="summary-hint" id="hint-rounds"></span></summary>
+    <div>
+      <div class="round-controls">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;margin-left:auto;">
+          <div class="btn-group">
+            <button class="btn btn-primary" id="generate-btn" onclick="generateRound()">Generate Pairings</button>
+            <button class="btn btn-secondary" id="print-round-btn" onclick="printRound()" disabled>🖨 Print Pairings</button>
+          </div>
+          <label style="display:flex;align-items:center;gap:5px;font-size:0.72rem;color:var(--muted);cursor:pointer;user-select:none;">
+            <input type="checkbox" id="partial-gen" style="accent-color:var(--green);cursor:pointer;" onchange="updateGenerateBtn()">
+            Available courts only
+          </label>
+        </div>
+      </div>
+      <div id="rounds-list">
+        <div class="empty-state">Generate a round to begin</div>
+      </div>
+    </div>
+  </details>
+
+  <!-- ── Standings ─────────────────────────────────────────────── -->
+  <details class="card" id="standings-card">
+    <summary class="card-title">🏆 Standings</summary>
+    <div>
+      <div id="standings-group-label" style="display:none;font-family:var(--font-display);font-size:0.78rem;font-weight:700;color:var(--green);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:28px;">#</th>
+              <th>Player</th>
+              <th>W</th>
+              <th>L</th>
+              <th>Win%</th>
+              <th title="Point differential — used as tiebreaker">+/−</th>
+            </tr>
+          </thead>
+          <tbody id="standings-tbody">
+            <tr><td colspan="6" class="empty-state">No data yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;display:flex;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="printStandings()">🖨 Print Standings</button>
+      </div>
+    </div>
+  </details>
+
+  <!-- ── Player Report ─────────────────────────────────────────── -->
+  <details class="card" id="report-card">
+    <summary class="card-title">📊 Player Report</summary>
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+        <label class="form-label" style="margin:0;white-space:nowrap;">Select Player:</label>
+        <select class="form-control" id="report-player-sel" onchange="renderPlayerReport()" style="max-width:220px;">
+          <option value="">— choose a player —</option>
+        </select>
+      </div>
+      <div id="report-inner"><div class="empty-state">Select a player to see their report</div></div>
+    </div>
+  </details>
+
+</div><!-- /page-wrap -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════
+const state = {
+  settings: { numCourts: 2, mode: 'doubles', rankingMode: 'winPct', groupName: '',
+              pairingMode: 'normal' },
+  players: [],
+  rounds: [],
+  tournament: null,   // null = not in tournament mode; object when active
+  playerRoles: {}     // { [playerId]: 'host'|'admin'|'scorer'|'player' }
+};
+let _nextId = 1;
+let _myPlayerId = localStorage.getItem('pb_myPlayerId') || '';
+
+// ═══════════════════════════════════════════════════════════════════
+// NETWORKING — PeerJS
+// ═══════════════════════════════════════════════════════════════════
+let _peer = null, _conns = [], _hostConn = null;
+let _isHost = false, _sessionCode = '';
+let _nameDebounceT = null;
+
+function _rndCode() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({length: 4}, () => c[Math.floor(Math.random() * c.length)]).join('');
+}
+function _peerId(code) { return 'pb-pairtool-' + code.toUpperCase(); }
+
+function destroyPeer() {
+  if (_peer) { try { _peer.destroy(); } catch(e) {} _peer = null; }
+  _conns = []; _hostConn = null; _isHost = false;
+}
+
+function startHost() {
+  destroyPeer();
+  _sessionCode = _rndCode();
+  _peer = new Peer(_peerId(_sessionCode), { debug: 0 });
+
+  _peer.on('open', () => {
+    _isHost = true;
+    updateNetUI();
+    updateMyPlayerDisplay();
+    document.getElementById('copy-url-btn').disabled = false;
+    document.getElementById('qr-url-btn').disabled = false;
+  });
+
+  _peer.on('connection', conn => {
+    conn.on('open', () => {
+      _conns.push(conn);
+      conn.send({ type: 'state-sync', payload: netSnapshot() });
+      updateNetUI();
+    });
+    conn.on('data', msg => {
+      if (msg.type === 'state-push') {
+        if (msg.payload) {
+          const senderRoles = msg.payload.playerRoles || state.playerRoles || {};
+          // A guest with host role in playerRoles has authority to delete players and change roles
+          const senderIsHost = Object.values(senderRoles).some(r => r === 'host');
+
+          if (msg.payload.players) {
+            const guestPlayers = msg.payload.players;
+            const guestIds = new Set(guestPlayers.map(p => p.id));
+
+            for (const gp of guestPlayers) {
+              const existing = state.players.find(p => p.id === gp.id);
+              if (!existing) {
+                // New player added by guest
+                state.players.push(gp);
+              } else {
+                // Always accept sitOut changes (any role may change their own)
+                if (typeof gp.sitOut === 'boolean') existing.sitOut = gp.sitOut;
+                // Accept removed=true from a host-role guest
+                if (senderIsHost && gp.removed === true) existing.removed = true;
+              }
+            }
+
+            // A host-role guest may have hard-deleted a player (no history path).
+            // Any id present in host state but absent from guest list gets purged.
+            if (senderIsHost) {
+              for (let i = state.players.length - 1; i >= 0; i--) {
+                if (!guestIds.has(state.players[i].id)) {
+                  state.players.splice(i, 1);
+                }
+              }
+              // Accept the guest's cleaned-up byes arrays
+              if (msg.payload.rounds) {
+                for (let ri = 0; ri < msg.payload.rounds.length; ri++) {
+                  if (state.rounds[ri] && msg.payload.rounds[ri]) {
+                    state.rounds[ri].byes = msg.payload.rounds[ri].byes || [];
+                  }
+                }
+              }
+              // Accept role assignments made by the host-role guest
+              if (msg.payload.playerRoles) {
+                state.playerRoles = { ...state.playerRoles, ...msg.payload.playerRoles };
+              }
+            } else {
+              // Non-host guest: host's playerRoles always win
+              if (msg.payload.playerRoles) {
+                state.playerRoles = { ...msg.payload.playerRoles, ...state.playerRoles };
+              }
+            }
+          }
+
+          // Merge _nextId to avoid ID collisions
+          if (msg.payload._nextId && msg.payload._nextId > _nextId) _nextId = msg.payload._nextId;
+
+          // Prevent full player list and roles from being overwritten in applyNetState
+          msg.payload.players = state.players;
+          if (msg.payload.playerRoles !== undefined) msg.payload.playerRoles = state.playerRoles;
+        }
+        applyNetState(msg.payload, false);
+        broadcastAll({ type: 'state-sync', payload: netSnapshot() });
+      }
+    });
+    conn.on('close',  () => { _conns = _conns.filter(c => c !== conn); updateNetUI(); });
+    conn.on('error',  () => { _conns = _conns.filter(c => c !== conn); });
+  });
+
+  _peer.on('error', e => {
+    if (e.type === 'unavailable-id') { setTimeout(startHost, 300); }
+    else setJoinStatus('Network error: ' + e.type, 'danger');
+  });
+}
+
+function startClient(code) {
+  destroyPeer();
+  _sessionCode = code.toUpperCase();
+  setJoinStatus('Connecting…', 'muted');
+  setPill('off', 'Connecting…');
+
+  _peer = new Peer({ debug: 0 });
+  _peer.on('open', () => {
+    _hostConn = _peer.connect(_peerId(_sessionCode), { reliable: true });
+    const timeout = setTimeout(() => {
+      if (!_hostConn || !_hostConn.open) {
+        setJoinStatus('Not found — check code.', 'danger');
+        startHost();
+      }
+    }, 9000);
+
+    _hostConn.on('open', () => {
+      clearTimeout(timeout);
+      _isHost = false;
+      setJoinStatus('', '');
+      updateNetUI();
+      updateMyPlayerDisplay();
+      applyLockUI();
+      // Push our player (if new) to host
+      netBroadcast();
+    });
+    _hostConn.on('data', msg => {
+      if (msg.type === 'state-sync') applyNetState(msg.payload, true);
+    });
+    _hostConn.on('close', () => {
+      setPill('off', 'Disconnected');
+      setJoinStatus('Host disconnected', 'warn');
+    });
+    _hostConn.on('error', () => {
+      clearTimeout(timeout);
+      setJoinStatus('Connection failed.', 'danger');
+      startHost();
+    });
+  });
+  _peer.on('error', e => {
+    setJoinStatus('Error: ' + e.type, 'danger');
+    startHost();
+  });
+}
+
+function broadcastAll(msg) {
+  for (const c of _conns) if (c.open) c.send(msg);
+}
+
+function netSnapshot() {
+  return { ...state, _nextId, playerRoles: state.playerRoles || {} };
+}
+
+// Call after every local state change to push to peers
+function netBroadcast() {
+  const msg = { type: 'state-sync', payload: netSnapshot() };
+  if (_isHost) {
+    broadcastAll(msg);
+  } else if (_hostConn && _hostConn.open) {
+    _hostConn.send({ type: 'state-push', payload: netSnapshot() });
+  }
+}
+
+// Apply incoming state without triggering another broadcast
+function applyNetState(incoming, fromHost) {
+  if (!incoming) return;
+  const prevRoundCount = state.rounds.length;
+  state.players  = incoming.players  || [];
+  state.rounds   = incoming.rounds   || [];
+  if (incoming.settings)   state.settings  = { ...state.settings, ...incoming.settings };
+  if (incoming._nextId)    _nextId          = incoming._nextId;
+  if (incoming.tournament !== undefined) state.tournament = incoming.tournament;
+  if (incoming.playerRoles !== undefined) state.playerRoles = incoming.playerRoles || {};
+
+  recalcWinLoss();
+
+  const focused = document.activeElement;
+  const inPlayers = focused && document.getElementById('players-tbody')?.contains(focused);
+  const inScore   = focused && focused.classList.contains('score-input');
+  // Remember which score input had focus (and its value) so we can restore after re-render
+  const focusedScoreId  = inScore ? focused.id : null;
+  const focusedScoreVal = inScore ? focused.value : null;
+
+  if (!inPlayers) renderPlayers();
+  updateRoundSelector();
+  // Always re-render rounds so scores/badges stay in sync, but restore focus immediately after
+  renderAllRounds();
+  if (focusedScoreId) {
+    const restored = document.getElementById(focusedScoreId);
+    if (restored) {
+      restored.value = focusedScoreVal;
+      restored.focus();
+      // Place cursor at end
+      try { restored.setSelectionRange(focusedScoreVal.length, focusedScoreVal.length); } catch(e) {}
+    }
+  }
+  renderStandings();
+  updateGenerateBtn();
+
+  // Notify if a new round just appeared
+  if (state.rounds.length > prevRoundCount) {
+    maybeNotifyCourtAssignment(state.rounds[state.rounds.length - 1]);
+  }
+
+  // Sync settings controls
+  const s = incoming.settings;
+  if (s) {
+    document.getElementById('num-courts').value   = s.numCourts   || 2;
+    document.getElementById('game-mode').value    = s.mode        || 'doubles';
+    document.getElementById('ranking-mode').value = s.rankingMode || 'winPct';
+    document.getElementById('group-name').value   = s.groupName   || '';
+    // Sync pairing mode
+    const pmSel = document.getElementById('pairing-mode');
+    if (pmSel) pmSel.value = s.pairingMode || 'normal';
+  }
+  updateSettingsHint();
+  updateWeightsHint();
+  updateRoundsHint();
+  updateStandingsGroupLabel();
+  applyLockUI();
+  updateMyPlayerDisplay();
+  updatePairingModeUI();
+
+  // Enable print button if there are rounds
+  if (state.rounds.length) {
+    document.getElementById('print-round-btn').disabled = false;
+  }
+
+  updateNetUI();
+
+  // Show the "who are you?" modal once the host's player list has arrived
+  if (_showModalAfterSync && fromHost) {
+    _showModalAfterSync = false;
+    showJoinNameModal();
+  }
+}
+
+function updateNetUI() {
+  const codeEl = document.getElementById('session-code');
+  const codeInline = document.getElementById('session-code-inline');
+  if (codeEl) codeEl.textContent = _sessionCode || '—';
+  if (codeInline) codeInline.textContent = _sessionCode || '—';
+
+  if (_isHost) {
+    const n = _conns.filter(c => c.open).length;
+    const guestTxt = n === 0 ? 'host · no guests' : `host · ${n} guest${n > 1 ? 's' : ''}`;
+    setPill('host', guestTxt);
+    document.getElementById('copy-url-btn').disabled = false;
+    document.getElementById('qr-url-btn').disabled = false;
+  } else if (_hostConn && _hostConn.open) {
+    setPill('guest', 'guest');
+    document.getElementById('copy-url-btn').disabled = false;
+    document.getElementById('qr-url-btn').disabled = false;
+  } else {
+    setPill('off', 'offline');
+  }
+  applyLockUI();
+  updateMyPlayerDisplay();
+}
+
+function setPill(cls, text) {
+  const pill = document.getElementById('net-pill');
+  pill.className = 'net-pill ' + cls;
+  document.getElementById('net-pill-text').textContent = text;
+}
+
+function setJoinStatus(msg, style) {
+  const el = document.getElementById('join-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = style === 'danger' ? 'var(--danger)'
+                 : style === 'warn'   ? 'var(--warn)'
+                 : 'var(--muted)';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ROLE-BASED PERMISSIONS
+// Roles: 'host' | 'admin' | 'scorer' | 'player'
+// H: everything, including delete and assigning roles.
+// A: everything except delete (players/rounds/courts).
+// S: enter/add scores on unscored courts, generate rounds, partial-gen checkbox.
+//    Cannot overwrite existing scores, change settings, add/delete players.
+// P: own sit-out toggle only.
+// ═══════════════════════════════════════════════════════════════════
+
+// My role: always 'host' when _isHost, else from the role the host assigned to my player id.
+function myRole() {
+  if (_isHost) return 'host';
+  // Look up assigned role from state.playerRoles (synced from host)
+  if (_myPlayerId && state.playerRoles && state.playerRoles[_myPlayerId]) {
+    return state.playerRoles[_myPlayerId];
+  }
+  return 'player'; // default for unidentified guests
+}
+
+const ROLE_RANK = { host: 4, admin: 3, scorer: 2, player: 1 };
+function roleAtLeast(role) { return (ROLE_RANK[myRole()] || 0) >= (ROLE_RANK[role] || 0); }
+
+// action: 'scores'|'delete'|'generate'|'addplayer'|'settings'|'changecourt'|'changescore'
+function canDo(action) {
+  const r = myRole();
+  if (r === 'host')   return true;
+  if (r === 'admin') {
+    if (action === 'delete') return false; // only host can delete
+    return true; // admin gets full access otherwise
+  }
+  if (r === 'scorer') {
+    if (action === 'delete')     return false;
+    if (action === 'settings')   return false;
+    if (action === 'addplayer')  return false;
+    if (action === 'changescore')return true;  // override scores on scored courts
+    return true; // scores, generate, changecourt (unscored)
+  }
+  if (r === 'player') {
+    if (action === 'sitout')      return true;  // own sit-out only
+    // Players cannot enter scores, delete, generate, add, change settings, or change court assignments
+    return false;
+  }
+  return false;
+}
+
+// Whether current user can change players on a court that already has scores
+function canChangeCourtWithScore() { return roleAtLeast('admin'); }
+// Whether current user can delete players/rounds/games — host only
+function canDelete() { return myRole() === 'host'; }
+
+// Show/hide elements based on current role
+function applyLockUI() {
+  const r = myRole();
+  const isHost = _isHost;
+  const canSettings = roleAtLeast('admin');
+
+  // Role badge in session summary
+  const roleBadge = document.getElementById('role-badge');
+  if (roleBadge) {
+    if (!isHost && _hostConn && _hostConn.open) {
+      const ROLE_LABEL = { host:'Host', admin:'Admin', scorer:'Scorer', player:'Player' };
+      const ROLE_COLOR = { host:'#7ab4f5', admin:'#a78bfa', scorer:'#34d399', player:'var(--muted)' };
+      roleBadge.textContent = ROLE_LABEL[r] || r;
+      roleBadge.style.color = ROLE_COLOR[r] || 'var(--muted)';
+      roleBadge.style.display = '';
+    } else {
+      roleBadge.style.display = 'none';
+    }
+  }
+
+  // Update my-role-display in session row
+  const myRoleDisp = document.getElementById('my-role-display');
+  if (myRoleDisp) {
+    const ROLE_LABEL = { host:'Host 👑', admin:'Admin', scorer:'Scorer', player:'Player' };
+    myRoleDisp.textContent = isHost ? '(Host)' : _myPlayerId ? `Role: ${ROLE_LABEL[r] || r}` : '';
+  }
+
+  // Generate button
+  updateGenerateBtn();
+
+  // Add Player button
+  const addBtn = document.querySelector('#players-card .btn-primary');
+  if (addBtn) {
+    const can = canDo('addplayer');
+    addBtn.disabled = !can;
+    addBtn.title    = can ? '' : 'Your role cannot add players';
+  }
+
+  // ── Settings inputs — disable and gray out for non-admins ──────────
+  const settingsInputs = ['num-courts', 'game-mode', 'ranking-mode', 'pairing-mode'];
+  for (const id of settingsInputs) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = !canSettings;
+      el.style.opacity = canSettings ? '' : '0.45';
+      el.style.cursor  = canSettings ? '' : 'not-allowed';
+      el.title = canSettings ? '' : 'Your role cannot change settings';
+    }
+  }
+
+  // Group name input in topbar
+  const groupNameEl = document.getElementById('group-name');
+  if (groupNameEl) {
+    groupNameEl.readOnly = !canSettings;
+    groupNameEl.style.opacity = canSettings ? '' : '0.45';
+    groupNameEl.style.cursor  = canSettings ? '' : 'not-allowed';
+    groupNameEl.title = canSettings ? '' : 'Your role cannot change settings';
+  }
+
+  // ── Pairing weights sliders — disable for non-admins ──────────────
+  const sliderIds = ['w-opp', 'w-prt', 'w-fair', 'w-like', 'w-wait'];
+  for (const id of sliderIds) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = !canSettings;
+      el.style.opacity = canSettings ? '' : '0.45';
+      el.style.cursor  = canSettings ? '' : 'not-allowed';
+      el.title = canSettings ? '' : 'Your role cannot change pairing weights';
+    }
+  }
+
+  // ── "Finished courts only" checkbox — scorers and above can use it ─
+  const canPartialGen = roleAtLeast('scorer');
+  const partialGen = document.getElementById('partial-gen');
+  if (partialGen) {
+    partialGen.disabled = !canPartialGen;
+    partialGen.style.opacity = canPartialGen ? '' : '0.45';
+    partialGen.style.cursor  = canPartialGen ? '' : 'not-allowed';
+    if (partialGen.parentElement) {
+      partialGen.parentElement.style.opacity = canPartialGen ? '' : '0.45';
+      partialGen.parentElement.style.cursor  = canPartialGen ? '' : 'not-allowed';
+      partialGen.parentElement.title = canPartialGen ? '' : 'Your role cannot change this setting';
+    }
+  }
+}
+
+
+function copyShareURL() {
+  if (!_sessionCode) return;
+  const url = new URL(window.location.href.split('?')[0]);
+  url.searchParams.set('code', _sessionCode);
+  navigator.clipboard.writeText(url.toString())
+    .then(() => {
+      const btn = document.getElementById('copy-url-btn');
+      const orig = btn.textContent;
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1800);
+    })
+    .catch(() => prompt('Share this URL:', url.toString()));
+}
+
+let _qrInstance = null;
+function showQR() {
+  if (!_sessionCode) return;
+  const url = new URL(window.location.href.split('?')[0]);
+  url.searchParams.set('code', _sessionCode);
+  const modal = document.getElementById('qr-modal');
+  const canvas = document.getElementById('qr-canvas');
+  canvas.innerHTML = '';
+  _qrInstance = new QRCode(canvas, {
+    text: url.toString(),
+    width: 200, height: 200,
+    colorDark: '#000000', colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+  document.getElementById('qr-code-label').textContent = _sessionCode;
+  modal.style.display = 'flex';
+  modal.onclick = e => { if (e.target === modal) closeQR(); };
+}
+function closeQR() {
+  document.getElementById('qr-modal').style.display = 'none';
+  _qrInstance = null;
+}
+
+function deleteRound(idx) {
+  if (!canDelete()) { showToast('Your role cannot delete rounds', 'warn'); return; }
+  if (!confirm(`Delete Round ${state.rounds[idx]?.roundNum}? This cannot be undone.`)) return;
+  state.rounds.splice(idx, 1);
+  // Renumber remaining rounds
+  state.rounds.forEach((r, i) => { r.roundNum = i + 1; });
+  // Clean up open-state cache
+  delete _roundOpen[idx];
+  const newOpen = {};
+  Object.keys(_roundOpen).forEach(k => {
+    const ki = parseInt(k);
+    if (ki < idx) newOpen[ki] = _roundOpen[ki];
+    else if (ki > idx) newOpen[ki - 1] = _roundOpen[ki];
+  });
+  Object.assign(_roundOpen, newOpen);
+  recalcWinLoss();
+  renderAllRounds();
+  renderStandings();
+  updateGenerateBtn();
+  netBroadcast();
+}
+
+// ── Pre-join name modal ─────────────────────────────────────────────
+let _pendingJoinCode = '';
+let _showModalAfterSync = false; // flag: show name modal once we receive first state-sync
+
+function doJoin() {
+  const code = (document.getElementById('join-code-input').value || '').trim().toUpperCase();
+  if (code.length < 4) { setJoinStatus('Enter a 4-char code.', 'danger'); return; }
+  _pendingJoinCode = code;
+  // Connect first so we receive the host's player list, then show the modal
+  _showModalAfterSync = true;
+  startClient(_pendingJoinCode);
+  _pendingJoinCode = '';
+}
+
+function showJoinNameModal() {
+  // Populate the dropdown with current player list (if any synced), plus "Add new"
+  const sel = document.getElementById('jnm-player-sel');
+  const active = state.players.filter(p => !p.removed && p.name.trim());
+  sel.innerHTML = '<option value="">— select your name —</option>' +
+    active.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('') +
+    '<option value="__new__">＋ Add new player…</option>';
+
+  // Pre-select saved player if known
+  if (_myPlayerId) {
+    const found = active.find(p => p.id === _myPlayerId);
+    if (found) sel.value = _myPlayerId;
+  }
+
+  document.getElementById('jnm-new-row').style.display = 'none';
+  document.getElementById('join-name-modal').style.display = 'flex';
+}
+
+function onJoinNameSelChange(val) {
+  const newRow = document.getElementById('jnm-new-row');
+  newRow.style.display = (val === '__new__') ? '' : 'none';
+  if (val !== '__new__') document.getElementById('jnm-new-name').value = '';
+}
+
+function cancelJoin() {
+  document.getElementById('join-name-modal').style.display = 'none';
+  _pendingJoinCode = '';
+  _showModalAfterSync = false;
+  setJoinStatus('', '');
+  // If we connected to a host but user cancelled identity selection, drop back to hosting
+  if (!_isHost && _hostConn) {
+    destroyPeer();
+    startHost();
+  }
+}
+
+function confirmJoinName() {
+  const sel = document.getElementById('jnm-player-sel');
+  // Read value from both the select element and the new-name row visibility
+  // to guard against stale select state
+  const newRow = document.getElementById('jnm-new-row');
+  const newRowVisible = newRow && newRow.style.display !== 'none';
+  const val = newRowVisible ? '__new__' : sel.value;
+  let chosenId = '', chosenName = '';
+
+  if (val === '__new__') {
+    chosenName = (document.getElementById('jnm-new-name').value || '').trim();
+    if (!chosenName) { showToast('Please enter your name.', 'warn'); return; }
+    // Generate an id that is guaranteed not to collide with any existing player
+    while (state.players.find(p => p.id === 'p' + _nextId)) _nextId++;
+    chosenId = 'p' + (_nextId++);
+    state.players.push({ id: chosenId, name: chosenName, gender: 'E', initialRanking: null,
+      wins: 0, losses: 0, byes: 0, waitCount: 0, sitOut: false });
+  } else if (val) {
+    chosenId = val;
+    const p = findPlayer(chosenId);
+    chosenName = p ? p.name : '';
+  } else {
+    showToast('Please select your name.', 'warn');
+    return;
+  }
+
+  _myPlayerId = chosenId;
+  localStorage.setItem('pb_myPlayerId', chosenId);
+  updateMyPlayerDisplay();
+
+  document.getElementById('join-name-modal').style.display = 'none';
+
+  // If we haven't connected yet (legacy path), start the connection now.
+  // In the normal deferred path the connection is already open, so just
+  // render the new player locally and push state to the host.
+  if (_pendingJoinCode) {
+    startClient(_pendingJoinCode);
+    _pendingJoinCode = '';
+  } else {
+    renderPlayers();
+    renderStandings();
+    updateGenerateBtn();
+    netBroadcast();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════════════════════════
+function onGroupNameChange(val) {
+  if (!roleAtLeast('admin')) return; // input is readOnly, but guard the handler too
+  state.settings.groupName = val;
+  updateStandingsGroupLabel();
+  netBroadcast();
+}
+
+function updateStandingsGroupLabel() {
+  const el = document.getElementById('standings-group-label');
+  if (!el) return;
+  const name = state.settings.groupName || '';
+  el.textContent = name;
+  el.style.display = name ? '' : 'none';
+}
+
+function onSettingsChange() {
+  if (!roleAtLeast('admin')) { showToast('Your role cannot change settings', 'warn'); return; }
+  state.settings.numCourts   = Math.max(1, parseInt(document.getElementById('num-courts').value) || 1);
+  state.settings.mode        = document.getElementById('game-mode').value;
+  state.settings.rankingMode = document.getElementById('ranking-mode').value;
+  document.getElementById('gender-th').style.color =
+    state.settings.mode === 'mixed-doubles' ? 'var(--green)' : '';
+  checkDoublesOddWarning();
+  updateSettingsHint();
+  updateGenerateBtn();
+  updatePairingModeUI();
+  renderCurrentRound();
+  renderStandings();
+  netBroadcast();
+}
+
+function checkDoublesOddWarning() {
+  const mode = state.settings.mode;
+  const pairingMode = state.settings.pairingMode;
+  const isDoubles = mode === 'doubles' || mode === 'mixed-doubles';
+  const isElim = pairingMode === 'single' || pairingMode === 'double';
+  let warningEl = document.getElementById('doubles-odd-warning');
+  if (!isDoubles || !isElim) {
+    if (warningEl) warningEl.remove();
+    return;
+  }
+  const activePlayers = state.players.filter(p => p.name.trim() && !p.removed && !p.sitOut).length;
+  const isOdd = activePlayers > 0 && activePlayers % 2 !== 0;
+  if (!isOdd) {
+    if (warningEl) warningEl.remove();
+    return;
+  }
+  if (!warningEl) {
+    warningEl = document.createElement('div');
+    warningEl.id = 'doubles-odd-warning';
+    warningEl.style.cssText = 'margin-top:8px;padding:8px 12px;background:rgba(224,90,90,0.12);border:1px solid rgba(224,90,90,0.35);border-radius:var(--radius);color:var(--danger);font-size:0.78rem;line-height:1.5;';
+    const settingsInner = document.querySelector('#settings-card .settings-row');
+    if (settingsInner) settingsInner.parentNode.insertBefore(warningEl, settingsInner.nextSibling);
+  }
+  warningEl.innerHTML = `⚠️ <strong>Odd number of players (${activePlayers})</strong> — Doubles elimination tournaments require an even number of players. With an odd count, one team in the first game will have only one player. Consider using <strong>Reseeded (Doubles)</strong> pairing mode instead, which handles odd counts more gracefully.`;
+}
+
+function updateSlider(el, valId) {
+  if (!roleAtLeast('admin')) {
+    // Revert slider to its last known value (from the label span)
+    el.value = document.getElementById(valId).textContent;
+    showToast('Your role cannot change pairing weights', 'warn');
+    return;
+  }
+  document.getElementById(valId).textContent = el.value;
+  updateWeightsHint();
+}
+
+// ── Collapsed-summary hint updaters ─────────────────────────────
+function updateSettingsHint() {
+  const s = state.settings;
+  const modeLabel = { singles: 'Singles', doubles: 'Doubles', 'mixed-doubles': 'Mixed' };
+  const rankLabel = { winPct: 'Current standings', initial: 'Init Rank' };
+  const pairLabel = { normal: '', single: ' · Single Elim', double: ' · Double Elim',
+                      rr: ' · Reseeded Dbl', 'rr-singles': ' · Reseeded Sgl' };
+  const el = document.getElementById('hint-settings');
+  if (el) el.textContent =
+    `${s.numCourts} court${s.numCourts !== 1 ? 's' : ''} · ${modeLabel[s.mode] || s.mode} · ${rankLabel[s.rankingMode] || s.rankingMode}${pairLabel[s.pairingMode] || ''}`;
+}
+
+function updatePlayersHint() {
+  const active  = state.players.filter(p => !p.removed && !p.sitOut).length;
+  const sitting = state.players.filter(p => !p.removed &&  p.sitOut).length;
+  const el = document.getElementById('hint-players');
+  if (!el) return;
+  el.textContent = sitting ? `${active} active · ${sitting} sitting out` : `${active} active`;
+}
+
+function updateWeightsHint() {
+  const w = getWeights();
+  const el = document.getElementById('hint-weights');
+  if (el) el.textContent = `Opp:${w.opp} Prt:${w.prt} Fair:${w.fair} Like:${w.like} Wait:${w.wait}`;
+}
+
+function updateRoundsHint() {
+  const el = document.getElementById('hint-rounds');
+  if (!el) return;
+  if (!state.rounds.length) { el.textContent = ''; return; }
+  let complete = 0, partial = 0, none = 0;
+  for (const r of state.rounds) {
+    const scored = r.courts.filter(c => c.score1 !== null && c.score2 !== null).length;
+    if (r.courts.length === 0 || scored === 0) none++;
+    else if (scored === r.courts.length) complete++;
+    else partial++;
+  }
+  const parts = [];
+  if (complete) parts.push(`${complete} complete`);
+  if (partial)  parts.push(`${partial} partial`);
+  if (none)     parts.push(`${none} not started`);
+  el.textContent = parts.join(' · ');
+}
+
+function getWeights() {
+  return {
+    opp:  +document.getElementById('w-opp').value,
+    prt:  +document.getElementById('w-prt').value,
+    fair: +document.getElementById('w-fair').value,
+    like: +document.getElementById('w-like').value,
+    wait: +document.getElementById('w-wait').value
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PLAYERS
+// ═══════════════════════════════════════════════════════════════════
+function getBusyPlayers() {
+  const busy = new Set();
+  for (const round of state.rounds)
+    for (const c of round.courts)
+      if (c.score1 === null || c.score2 === null)
+        for (const id of [...c.team1, ...c.team2]) busy.add(id);
+  return busy;
+}
+
+function isEligible(p, busy) {
+  return !!(p.name.trim() && !p.sitOut && !p.removed && !busy.has(p.id));
+}
+
+function updateEligibilityDots() {
+  const busy = getBusyPlayers();
+  for (const p of state.players) {
+    const dot = document.getElementById('dot-' + p.id);
+    if (!dot) continue;
+    const ok = isEligible(p, busy);
+    dot.style.background = ok ? 'var(--green)' : 'rgba(122,155,181,0.2)';
+    dot.title = ok ? 'Eligible for next round' : p.sitOut ? 'Sitting out' : 'On an unfinished court';
+  }
+}
+function addPlayer() {
+  if (!canDo('addplayer')) { showToast('Your role cannot add players', 'warn'); return; }
+  const id = 'p' + (_nextId++);
+  state.players.push({ id, name: '', gender: 'E', initialRanking: null, wins: 0, losses: 0, byes: 0, waitCount: 0, sitOut: false });
+  renderPlayers();
+  renderStandings();
+  updateGenerateBtn();
+  netBroadcast();
+  setTimeout(() => {
+    const rows = document.querySelectorAll('#players-tbody tr');
+    const inp = rows[rows.length - 1]?.querySelector('.player-name-input');
+    if (inp) inp.focus();
+  }, 20);
+}
+
+function removePlayer(id) {
+  if (!canDelete()) { showToast('Your role cannot remove players', 'warn'); return; }
+  const p = findPlayer(id);
+  if (!p) return;
+  const hasHistory = p.wins + p.losses > 0;
+  const msg = hasHistory
+    ? `Remove ${p.name || '(unnamed)'}?\n\nThis player has game history. They will be hidden from the active roster but their past scores will be preserved in standings.\n\nThis cannot be undone.`
+    : `Remove ${p.name || '(unnamed)'}?\n\nThis cannot be undone.`;
+  if (!confirm(msg)) return;
+  if (hasHistory) {
+    // Keep record in state but hide from active roster
+    p.removed = true;
+  } else {
+    state.players = state.players.filter(pl => pl.id !== id);
+  }
+  // Purge the player's id from all rounds' byes lists so they don't show as "?"
+  for (const round of state.rounds) {
+    if (round.byes) round.byes = round.byes.filter(bid => bid !== id);
+  }
+  renderPlayers();
+  renderStandings();
+  updateGenerateBtn();
+  netBroadcast();
+}
+
+function onNameChange(id, val) {
+  const p = findPlayer(id);
+  if (p) p.name = val.trim();
+  updateGenerateBtn();
+  renderStandings();
+  clearTimeout(_nameDebounceT);
+  _nameDebounceT = setTimeout(netBroadcast, 350);
+}
+
+function onGenderChange(id, val) {
+  const p = findPlayer(id);
+  if (p) p.gender = val;
+  netBroadcast();
+}
+
+function onRankChange(id, val) {
+  const p = findPlayer(id);
+  if (p) p.initialRanking = val === '' ? null : parseFloat(val);
+  renderCurrentRound();
+  renderStandings();
+  clearTimeout(_nameDebounceT);
+  _nameDebounceT = setTimeout(netBroadcast, 350);
+}
+
+function onSitOutChange(id, checked) {
+  // Players can only toggle their own sit-out; scorers/admins/host can toggle any
+  if (!roleAtLeast('scorer') && id !== _myPlayerId) {
+    showToast('You can only change your own sit-out status', 'warn');
+    renderPlayers(); // revert the checkbox visually
+    return;
+  }
+  const p = findPlayer(id);
+  if (p) p.sitOut = checked;
+  renderPlayers();
+  updateGenerateBtn();
+  netBroadcast();
+}
+
+function onRoleChange(id, role) {
+  if (myRole() !== 'host') return; // only host role can change roles
+  if (!state.playerRoles) state.playerRoles = {};
+  state.playerRoles[id] = role;
+  renderPlayers();
+  netBroadcast();
+}
+
+function renderPlayers() {
+  const tbody = document.getElementById('players-tbody');
+  const active = state.players.filter(p => !p.removed);
+  updatePlayersHint();
+  checkDoublesOddWarning();
+  if (!active.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No players yet — click Add Player</td></tr>';
+    return;
+  }
+  const busy = getBusyPlayers();
+  const canDel  = canDelete();
+  const canAddBtn = canDo('addplayer');
+  const isHost = _isHost;
+  // Update the Add Player button state
+  const addBtn = document.querySelector('#players-card .btn-primary');
+  if (addBtn) { addBtn.disabled = !canAddBtn; addBtn.title = canAddBtn ? '' : 'Your role cannot add players'; }
+  tbody.innerHTML = active.map(p => {
+    const g = p.gender || 'E';
+    const sitChecked = p.sitOut ? ' checked' : '';
+    const sitStyle   = p.sitOut ? 'opacity:0.5;' : '';
+    const ok = isEligible(p, busy);
+    const dotColor = ok ? 'var(--green)' : 'rgba(122,155,181,0.2)';
+    const dotTitle = ok ? 'Eligible for next round' : p.sitOut ? 'Sitting out' : 'On an unfinished court';
+    // Role
+    const role = (state.playerRoles && state.playerRoles[p.id]) || 'player';
+    const ROLE_BADGE = { host:'H', admin:'A', scorer:'S', player:'P' };
+    const ROLE_COLOR = { host:'#7ab4f5', admin:'#a78bfa', scorer:'#34d399', player:'var(--muted)' };
+    const ROLE_TITLE = { host:'Host', admin:'Admin', scorer:'Scorer', player:'Player' };
+    // Host role shows a dropdown to change role; others see a static badge
+    const isThisMyRow = p.id === _myPlayerId && _isHost; // the actual PeerJS host's own row
+    const isThisHost = role === 'host' || isThisMyRow;
+    const iAmHost = myRole() === 'host';
+    let roleCell;
+    if (iAmHost && !isThisMyRow) {
+      // Show dropdown for every other player — including those already marked host
+      roleCell = `<select class="gender-sel" title="Set role" onchange="onRoleChange('${p.id}',this.value)" style="font-size:0.72rem;padding:2px 3px;width:52px;">
+        <option value="host"${role==='host'?' selected':''}>H</option>
+        <option value="admin"${role==='admin'?' selected':''}>A</option>
+        <option value="scorer"${role==='scorer'?' selected':''}>S</option>
+        <option value="player"${role==='player'?' selected':''}>P</option>
+      </select>`;
+    } else {
+      const badge = isThisHost ? 'H' : (ROLE_BADGE[role] || 'P');
+      const color = isThisHost ? '#7ab4f5' : (ROLE_COLOR[role] || 'var(--muted)');
+      const tip   = isThisHost ? 'Host' : (ROLE_TITLE[role] || 'Player');
+      roleCell = `<span title="${tip}" style="font-size:0.75rem;font-weight:700;color:${color};">${badge}</span>`;
+    }
+    // Sit-out: player role can only change own sit-out; others can change any
+    const sitCanChange = roleAtLeast('scorer') || p.id === _myPlayerId;
+    return `<tr style="${sitStyle}">
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span id="dot-${p.id}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${dotColor};" title="${dotTitle}"></span>
+          <input class="player-name-input" type="text" placeholder="Enter name…"
+            value="${esc(p.name)}" oninput="onNameChange('${p.id}', this.value)" style="flex:1;"
+            ${roleAtLeast('admin') || p.id === _myPlayerId ? '' : 'readonly'}>
+        </div>
+      </td>
+      <td style="text-align:center;">
+        <select class="gender-sel" onchange="onGenderChange('${p.id}', this.value)" ${roleAtLeast('admin') ? '' : 'disabled'}>
+          <option value="E"${g==='E'?' selected':''}>E</option>
+          <option value="M"${g==='M'?' selected':''}>M</option>
+          <option value="F"${g==='F'?' selected':''}>F</option>
+        </select>
+      </td>
+      <td style="text-align:center;">
+        <input class="rank-input" type="number" placeholder="—" step="0.5" min="0"
+          value="${p.initialRanking !== null ? p.initialRanking : ''}"
+          oninput="onRankChange('${p.id}', this.value)"
+          ${roleAtLeast('admin') ? '' : 'readonly style="opacity:0.5;"'}>
+      </td>
+      <td style="text-align:center;${(p.waitCount||0)>0?'color:var(--warn);font-weight:600;':'color:var(--muted);'}"
+          title="Players assigned courts since ${esc(p.name||'this player')} last played">
+        ${(p.waitCount||0)>0 ? p.waitCount : '—'}
+      </td>
+      <td style="text-align:center;">
+        <input type="checkbox" class="sitout-check"${sitChecked}
+          ${sitCanChange ? `onchange="onSitOutChange('${p.id}', this.checked)"` : 'disabled'}
+          title="${sitCanChange ? 'Sit out — exclude from future rounds' : 'Cannot change'}">
+      </td>
+      <td style="text-align:center;">${roleCell}</td>
+      <td style="text-align:center;">
+        <button class="btn btn-danger" style="padding:2px 7px;font-size:0.7rem;${canDel ? '' : 'display:none;'}"
+          onclick="removePlayer('${p.id}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+  updateMyPlayerSelector();
+  updateReportSelector();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SKILL / RANKING
+// ═══════════════════════════════════════════════════════════════════
+function getSkill(id) {
+  const p = findPlayer(id);
+  if (!p) return 0.5;
+  if (state.settings.rankingMode === 'winPct') {
+    const g = p.wins + p.losses;
+    return g === 0 ? 0.5 : p.wins / g;
+  }
+  const ranked = state.players.filter(pp => pp.initialRanking !== null);
+  if (!ranked.length || p.initialRanking === null) return 0.5;
+  const lo = Math.min(...ranked.map(pp => pp.initialRanking));
+  const hi = Math.max(...ranked.map(pp => pp.initialRanking));
+  // Lower number = better player, so invert: rank 1 → skill 1.0
+  return hi === lo ? 0.5 : (hi - p.initialRanking) / (hi - lo);
+}
+
+function teamRatingLabel(ids) {
+  if (state.settings.rankingMode === 'winPct') {
+    if (ids.every(id => { const p = findPlayer(id); return p && (p.wins + p.losses) === 0; }))
+      return 'No games yet';
+    const avg = ids.reduce((s, id) => s + getSkill(id), 0) / ids.length;
+    return `${(avg * 100).toFixed(0)}% win`;
+  }
+  if (ids.length === 1) {
+    const p = findPlayer(ids[0]);
+    return p?.initialRanking !== null ? `Rank ${p.initialRanking}` : 'Unranked';
+  }
+  const has = ids.filter(id => findPlayer(id)?.initialRanking !== null);
+  if (!has.length) return 'Unranked';
+  const avg = has.reduce((s, id) => s + findPlayer(id).initialRanking, 0) / has.length;
+  return `Avg ${avg % 1 === 0 ? avg : avg.toFixed(1)}`;
+}
+
+function sortSkill(id) {
+  const p = findPlayer(id);
+  if (!p) return -999;
+  if (state.settings.rankingMode === 'winPct') {
+    const g = p.wins + p.losses;
+    return g === 0 ? -1 : p.wins / g;
+  }
+  // Lower initialRanking = better player; negate so higher sort value = better
+  return p.initialRanking !== null ? -p.initialRanking : -999;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PAIRING ALGORITHM
+// ═══════════════════════════════════════════════════════════════════
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function stdDev(vals) {
+  if (vals.length < 2) return 0;
+  const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+  return Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length);
+}
+
+function buildHistory() {
+  const opp = {}, prt = {};
+  const key = (a, b) => [a, b].sort().join('|');
+  const inc = (map, a, b) => { const k = key(a, b); map[k] = (map[k] || 0) + 1; };
+  for (const round of state.rounds) {
+    for (const c of round.courts) {
+      for (const a of c.team1) for (const b of c.team2) inc(opp, a, b);
+      if (c.team1.length === 2) inc(prt, c.team1[0], c.team1[1]);
+      if (c.team2.length === 2) inc(prt, c.team2[0], c.team2[1]);
+    }
+  }
+  return { opp, prt };
+}
+
+function lookupPair(map, a, b) { return map[[a, b].sort().join('|')] || 0; }
+
+function genderPenalty(id1, id2) {
+  const g1 = findPlayer(id1)?.gender || 'E';
+  const g2 = findPlayer(id2)?.gender || 'E';
+  if (g1 === 'E' || g2 === 'E') return 0;
+  return g1 === g2 ? 1 : 0;
+}
+
+function calcCost(courts, hist, weights) {
+  const isMixed = state.settings.mode === 'mixed-doubles';
+
+  // Pre-compute normalized wait scores for the wait penalty
+  let maxWait = 0;
+  if (weights.wait) {
+    for (const p of state.players) if ((p.waitCount || 0) > maxWait) maxWait = p.waitCount;
+  }
+
+  let cost = 0;
+  for (const c of courts) {
+    if (weights.opp)
+      for (const a of c.team1) for (const b of c.team2)
+        cost += weights.opp * Math.min(lookupPair(hist.opp, a, b), 1);
+    if (weights.prt && c.team1.length === 2) {
+      cost += weights.prt * Math.min(lookupPair(hist.prt, c.team1[0], c.team1[1]), 1);
+      cost += weights.prt * Math.min(lookupPair(hist.prt, c.team2[0], c.team2[1]), 1);
+    }
+    if (weights.fair) {
+      const a1 = c.team1.reduce((s, id) => s + getSkill(id), 0) / c.team1.length;
+      const a2 = c.team2.reduce((s, id) => s + getSkill(id), 0) / c.team2.length;
+      cost += weights.fair * Math.abs(a1 - a2);
+    }
+    if (weights.like)
+      cost += weights.like * stdDev([...c.team1, ...c.team2].map(id => getSkill(id))) * 2;
+    if (isMixed && c.team1.length === 2) {
+      cost += 20 * genderPenalty(c.team1[0], c.team1[1]);
+      cost += 20 * genderPenalty(c.team2[0], c.team2[1]);
+    }
+    // Wait priority: subtract reward for including long-waiting players
+    // (lower cost = better = this court assignment is preferred)
+    if (weights.wait && maxWait > 0) {
+      const allOnCourt = [...c.team1, ...c.team2];
+      const avgWaitNorm = allOnCourt.reduce((s, id) => {
+        const p = findPlayer(id);
+        return s + (p ? (p.waitCount || 0) / maxWait : 0);
+      }, 0) / allOnCourt.length;
+      cost -= weights.wait * avgWaitNorm * 2; // subtract to reward long waiters
+    }
+  }
+  return cost;
+}
+
+function ppc() {
+  return (state.settings.mode === 'doubles' || state.settings.mode === 'mixed-doubles') ? 4 : 2;
+}
+
+function makeCourts(players, numCourts) {
+  const n = ppc();
+  const courts = [];
+  for (let i = 0; i < numCourts; i++) {
+    const g = players.slice(i * n, (i + 1) * n);
+    if (g.length < n) break;
+    courts.push({
+      courtNum: i + 1,
+      team1: n === 4 ? [g[0], g[1]] : [g[0]],
+      team2: n === 4 ? [g[2], g[3]] : [g[1]],
+      score1: null, score2: null
+    });
+  }
+  return courts;
+}
+
+function byePct(p) {
+  const total = p.wins + p.losses + p.byes;
+  return total === 0 ? 0 : p.byes / total;
+}
+
+function selectActive() {
+  const { numCourts, mode } = state.settings;
+  const need  = numCourts * ppc();
+  const named = state.players.filter(p => p.name.trim() && !p.removed && !p.sitOut);
+  if (named.length <= need) return named.map(p => p.id);
+
+  const waitWeight = +document.getElementById('w-wait').value;
+
+  // Compute max waitCount for normalization
+  const maxWait = Math.max(1, ...named.map(p => p.waitCount || 0));
+
+  // Sort: blend byePct and normalized waitCount based on wait slider
+  // Higher score = more deserving of court time → sorted descending
+  const score = p => {
+    const byeScore  = byePct(p);
+    const waitScore = (p.waitCount || 0) / maxWait;
+    if (waitWeight === 0) return byeScore;
+    if (waitWeight === 10) return waitScore;
+    // Blend: waitWeight/10 toward waitScore, rest toward byeScore
+    return (waitWeight / 10) * waitScore + (1 - waitWeight / 10) * byeScore;
+  };
+
+  // Shuffle first to randomize ties, then sort by score descending
+  const sorted = shuffle(named).sort((a, b) => score(b) - score(a));
+
+  if (mode !== 'mixed-doubles') {
+    return sorted.slice(0, need).map(p => p.id);
+  }
+
+  // Mixed doubles: ensure gender-balanced selection so M/F pairing is possible.
+  const half = need / 2;
+  let mSlots = half, fSlots = half;
+  const chosen = [];
+
+  for (const p of sorted) {
+    if (chosen.length >= need) break;
+    const g = p.gender || 'E';
+    if      (g === 'M' && mSlots > 0) { chosen.push(p); mSlots--; }
+    else if (g === 'F' && fSlots > 0) { chosen.push(p); fSlots--; }
+    else if (g === 'E') {
+      if      (mSlots >= fSlots && mSlots > 0) { chosen.push(p); mSlots--; }
+      else if (fSlots > 0)                     { chosen.push(p); fSlots--; }
+    }
+  }
+
+  // Second pass: fill remaining slots if one gender was short
+  if (chosen.length < need) {
+    const chosenSet = new Set(chosen.map(p => p.id));
+    for (const p of sorted) {
+      if (chosen.length >= need) break;
+      if (!chosenSet.has(p.id)) chosen.push(p);
+    }
+  }
+
+  return chosen.slice(0, need).map(p => p.id);
+}
+
+function generateOptimal(active, numCourts) {
+  const hist    = buildHistory();
+  const weights = getWeights();
+  const iters   = Math.min(2000, Math.max(600, active.length * 150));
+  let best = null, bestCost = Infinity;
+  for (let i = 0; i < iters; i++) {
+    const courts = makeCourts(shuffle(active), numCourts);
+    if (!courts.length) continue;
+    const cost = calcCost(courts, hist, weights);
+    if (cost < bestCost) { bestCost = cost; best = courts; }
+  }
+  return best;
+}
+
+function getPartialEligible() {
+  // Track which players are busy (on any unscored court) and which have finished a game
+  const busy     = new Set();
+  const doneOnce = new Set();
+
+  // Track which court numbers currently have an unfinished game
+  const busyCourtNums = new Set();
+
+  for (const round of state.rounds) {
+    for (const c of round.courts) {
+      const complete = c.score1 !== null && c.score2 !== null;
+      for (const id of [...c.team1, ...c.team2]) {
+        if (!complete) busy.add(id);
+        else           doneOnce.add(id);
+      }
+      if (!complete) busyCourtNums.add(c.courtNum);
+    }
+  }
+
+  // Players freed from a completed court = finished at least one game AND not currently busy
+  const freed = [...doneOnce].filter(id => !busy.has(id));
+  if (!freed.length) return null;
+
+  // Also include players who had a bye in the most recent round
+  const lastRound = state.rounds[state.rounds.length - 1];
+  const lastRoundByes = new Set(lastRound?.byes || []);
+
+  // Eligible = freed from finished courts OR last-round bye, excluding busy/sitOut/removed
+  const eligibleIds = new Set(
+    state.players
+      .filter(p => {
+        if (!p.name.trim() || p.removed || p.sitOut) return false;
+        if (busy.has(p.id)) return false;
+        return freed.includes(p.id) || lastRoundByes.has(p.id);
+      })
+      .map(p => p.id)
+  );
+
+  if (eligibleIds.size < ppc()) return null;
+
+  // Available courts = configured courts minus those with a live unfinished game
+  const availableCourts = Math.max(0,
+    state.settings.numCourts - busyCourtNums.size
+  );
+
+  if (availableCourts === 0) return null;
+
+  return { eligibleIds, numCourts: availableCourts };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// GENERATE ROUND
+// ═══════════════════════════════════════════════════════════════════
+function generateRound() {
+  if (!canDo('generate')) { showToast('Your role cannot generate rounds', 'warn'); return; }
+  const minP = ppc();
+  const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
+  let active, numCourts;
+
+  if (isPartial) {
+    const partial = getPartialEligible();
+    if (!partial) {
+      alert('No completed courts (both scores entered) in the last round.');
+      return;
+    }
+    // Eligible = players from finished courts + last-round byes, minus sitOut/removed
+    const pool = state.players.filter(p =>
+      p.name.trim() && !p.removed && !p.sitOut && partial.eligibleIds.has(p.id));
+    if (pool.length < minP) {
+      alert(`Not enough eligible players from finished courts (need at least ${minP}).`);
+      return;
+    }
+    active    = pool.map(p => p.id);
+    numCourts = partial.numCourts;
+  } else {
+    active    = selectActive();
+    numCourts = state.settings.numCourts;
+    if (active.length < minP) {
+      alert(`Need at least ${minP} named players for ${state.settings.mode}.`);
+      return;
+    }
+  }
+
+  const courts = generateOptimal(active, numCourts);
+  if (!courts || !courts.length) {
+    alert('Could not fill any courts. Reduce court count or add more players.');
+    return;
+  }
+  const usedIds = new Set(courts.flatMap(c => [...c.team1, ...c.team2]));
+  // Byes: eligible players not placed (partial mode) or all non-placed non-sitout players (normal)
+  const byePool = isPartial
+    ? state.players.filter(p => p.name.trim() && !p.removed && !p.sitOut && active.includes(p.id))
+    : state.players.filter(p => p.name.trim() && !p.removed && !p.sitOut);
+  const byes = byePool.filter(p => !usedIds.has(p.id)).map(p => p.id);
+
+  const newRound = { roundNum: state.rounds.length + 1, courts, byes };
+  state.rounds.push(newRound);
+  recalcWinLoss();
+  updateRoundSelector();
+  document.getElementById('print-round-btn').disabled = false;
+  updateGenerateBtn();
+  renderAllRounds();
+  renderStandings();
+  maybeNotifyCourtAssignment(newRound);
+  netBroadcast();
+}
+
+// Returns { courts, playing, byes } for the next normal round, or null if
+// fewer than ppc() eligible players exist.
+// Mirrors the pool logic in generateRound() — uses the partial-eligible pool
+// when the "finished courts only" checkbox is checked and rounds exist.
+function _previewRoundCounts() {
+  const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
+  const pp        = ppc();
+  let eligible;
+  let partial = null;
+
+  if (isPartial) {
+    partial = getPartialEligible();
+    if (!partial) return null;   // no freed players yet — nothing to preview
+    eligible = state.players.filter(p =>
+      p.name.trim() && !p.removed && !p.sitOut && partial.eligibleIds.has(p.id));
+  } else {
+    eligible = state.players.filter(p => p.name.trim() && !p.removed && !p.sitOut);
+  }
+
+  if (eligible.length < pp) return null;
+  const maxCourts = isPartial ? partial.numCourts : state.settings.numCourts;
+  const courts  = Math.min(maxCourts, Math.floor(eligible.length / pp));
+  const playing = courts * pp;
+  const byes    = eligible.length - playing;
+  return { courts, playing, byes };
+}
+
+function updateGenerateBtn() {
+  const btn = document.getElementById('generate-btn');
+  if (!btn) return;
+  if (state.settings.pairingMode !== 'normal') {
+    btn.textContent = 'Tournament Active';
+    btn.disabled    = true;
+    btn.title       = 'Use Tournament card to manage rounds';
+    return;
+  }
+
+  const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
+  const preview  = _previewRoundCounts();
+  let label = 'Generate Pairings';
+  if (preview) {
+    const parts = [
+      `${preview.courts} court${preview.courts !== 1 ? 's' : ''}`,
+      `${preview.playing} playing`
+    ];
+    if (preview.byes > 0) parts.push(`${preview.byes} bye${preview.byes !== 1 ? 's' : ''}`);
+    label += `  (${parts.join(' · ')})`;
+  } else if (isPartial) {
+    label += '  (no courts available — all courts still in progress)';
+  }
+  btn.textContent = label;
+  btn.disabled    = !canDo('generate');
+  btn.title       = canDo('generate') ? '' : 'Your role cannot generate rounds';
+}
+
+// Update the complete/incomplete badges in every round summary without rebuilding the rounds DOM
+function updateAllRoundBadges() {
+  document.querySelectorAll('.round-box[data-round-idx]').forEach(box => {
+    const idx = parseInt(box.dataset.roundIdx);
+    const round = state.rounds[idx];
+    if (!round) return;
+    const badgeEl = box.querySelector('.round-box-badges');
+    if (badgeEl) badgeEl.innerHTML = roundStatusBadges(round);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SCORES & WIN/LOSS
+// ═══════════════════════════════════════════════════════════════════
+
+// Advance focus to the next score input after the current one
+function advanceScoreFocus(rIdx, cIdx, team) {
+  // Order: t1 → t2 of same court → t1 of next court (within all rendered score inputs)
+  const nextId = team === 1
+    ? `score-r${rIdx}-c${cIdx}-t2`
+    : `score-r${rIdx}-c${cIdx + 1}-t1`;
+  const next = document.getElementById(nextId);
+  if (next) { next.focus(); next.select(); }
+}
+
+function onScoreKey(e, rIdx, cIdx, team) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const inputEl = e.target;
+    onScoreCommit(rIdx, cIdx, team, inputEl.value, inputEl);
+    advanceScoreFocus(rIdx, cIdx, team);
+  }
+}
+
+// Returns a warning string if the score looks invalid, or null if ok.
+function validateScore(s1, s2) {
+  if (s1 === null || s2 === null) return null;
+  if (s1 === s2)
+    return `Score ${s1}–${s2} is a tie — is that correct?`;
+  const hi = Math.max(s1, s2), lo = Math.min(s1, s2);
+  if (hi > 11 && lo < 10)
+    return `Score ${s1}–${s2}: a score above 11 is only valid when the other score is at least 10 — is that correct?`;
+  if (lo >= 10 && hi - lo > 2)
+    return `Score ${s1}–${s2}: when the lower score is 10 or above the winning margin should be no more than 2 (e.g. 11–9) — is that correct?`;
+  return null;
+}
+
+// Called on every keystroke — only drives auto-advance, does NOT commit to state
+function onScoreInput(rIdx, cIdx, team, val, inputEl) {
+  if (!canDo('scores')) { showToast('Your role cannot enter scores', 'warn'); return; }
+  // Auto-advance to next field after two digits — commit happens in onScoreCommit (blur/Enter)
+  if (inputEl && val.length >= 2) advanceScoreFocus(rIdx, cIdx, team);
+}
+
+// Commits a score value to state. Called on blur (onchange) and on Enter (via onScoreKey).
+function onScoreCommit(rIdx, cIdx, team, val, inputEl) {
+  if (!canDo('scores')) return;
+  const court = state.rounds[rIdx]?.courts[cIdx];
+  if (!court) return;
+
+  const n = val === '' ? null : parseInt(val);
+  const newVal = (n === null || isNaN(n)) ? null : n;
+
+  // Scorers cannot overwrite an already-set score — revert and bail
+  if (myRole() === 'scorer') {
+    const existingVal = team === 1 ? court.score1 : court.score2;
+    if (existingVal !== null && newVal !== existingVal) {
+      if (inputEl) inputEl.value = existingVal !== null ? existingVal : '';
+      return;
+    }
+  }
+
+  // The other score (the one we're NOT editing)
+  const otherScore = team === 1 ? court.score2 : court.score1;
+  const currentVal = team === 1 ? court.score1 : court.score2;
+
+  // Only prompt if there was already a decided result before this edit session
+  // "decided" means both scores were set and one team was winning
+  const prevScore1 = team === 1 ? currentVal : court.score1;
+  const prevScore2 = team === 2 ? currentVal : court.score2;
+  const hadWinner = prevScore1 !== null && prevScore2 !== null &&
+                    prevScore1 !== prevScore2 &&
+                    newVal !== currentVal;  // value actually changed
+
+  if (hadWinner) {
+    if (!confirm('This game already has a result. Overwrite the score?')) {
+      // Restore original value
+      if (inputEl) inputEl.value = currentVal !== null ? currentVal : '';
+      return;
+    }
+  }
+
+  // Commit the value to state
+  if (team === 1) court.score1 = newVal;
+  else            court.score2 = newVal;
+
+  // Validate once both scores are present
+  if (court.score1 !== null && court.score2 !== null) {
+    const warn = validateScore(court.score1, court.score2);
+    if (warn) showToast('\u26a0\ufe0f ' + warn, 'warn');
+  }
+
+  recalcWinLoss();
+  renderPlayers();
+  renderStandings();
+  renderPlayerReport();
+  updateRoundsHint();
+  updateEligibilityDots();
+  updateGenerateBtn();
+  const el = document.getElementById(`win-r${rIdx}-c${cIdx}`);
+  if (el) el.innerHTML = winnerHTML(court);
+  updateAllRoundBadges();
+  netBroadcast();
+}
+
+function recalcWinLoss() {
+  for (const p of state.players) { p.wins = 0; p.losses = 0; p.byes = 0; p.pointDiff = 0; p.waitCount = p.waitCount ?? 0; }
+  // Reset waitCount and rebuild from rounds
+  for (const p of state.players) p.waitCount = 0;
+
+  for (const round of state.rounds) {
+    // Players actually on a court this round
+    const onCourt = new Set(round.courts.flatMap(c => [...c.team1, ...c.team2]));
+    const playersOnCourt = onCourt.size;
+
+    for (const id of (round.byes || [])) { const p = findPlayer(id); if (p) p.byes++; }
+    for (const c of round.courts) {
+      if (c.score1 === null || c.score2 === null) continue;
+      const w = c.score1 > c.score2 ? 'team1' : c.score2 > c.score1 ? 'team2' : null;
+      const diff1 = c.score1 - c.score2;
+      const diff2 = c.score2 - c.score1;
+      for (const id of c.team1) { const p = findPlayer(id); if (p) { p.pointDiff += diff1; if (w) { if (w === 'team1') p.wins++; else p.losses++; } } }
+      for (const id of c.team2) { const p = findPlayer(id); if (p) { p.pointDiff += diff2; if (w) { if (w === 'team2') p.wins++; else p.losses++; } } }
+    }
+
+    // Players assigned a court this round: reset their wait counter
+    for (const id of onCourt) {
+      const p = findPlayer(id);
+      if (p) p.waitCount = 0;
+    }
+
+    // Eligible players NOT on a court accumulate wait
+    if (playersOnCourt > 0) {
+      for (const p of state.players) {
+        if (p.removed || p.sitOut || !p.name.trim()) continue;
+        if (!onCourt.has(p.id)) {
+          p.waitCount = (p.waitCount || 0) + playersOnCourt;
+        }
+      }
+    }
+  }
+}
+
+function winnerHTML(c) {
+  if (c.score1 === null || c.score2 === null) return '';
+  const s = 'color:var(--green);';
+  if (c.score1 > c.score2) return `<span style="${s}">▲ ${esc(c.team1.map(pname).join(' / '))} wins</span>`;
+  if (c.score2 > c.score1) return `<span style="${s}">▲ ${esc(c.team2.map(pname).join(' / '))} wins</span>`;
+  return `<span style="color:var(--gold);">Tie</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COURT EDITING
+// ═══════════════════════════════════════════════════════════════════
+function changeCourtPlayer(rIdx, cIdx, team, slotIdx, newId) {
+  const round = state.rounds[rIdx];
+  if (!round) return;
+  const court = round.courts[cIdx];
+  if (!court) return;
+
+  const teamArr = court[team];
+  const oldId   = teamArr[slotIdx];
+
+  // Swap in the new player
+  teamArr[slotIdx] = newId;
+
+  // Update byes: if newId was sitting as a bye, remove them
+  round.byes = (round.byes || []).filter(id => id !== newId);
+
+  // If oldId is no longer on any court in this round, add them to byes
+  const allOnCourt = new Set(round.courts.flatMap(c => [...c.team1, ...c.team2]));
+  if (oldId && !allOnCourt.has(oldId)) {
+    const p = findPlayer(oldId);
+    if (p && p.name.trim() && !p.removed && !p.sitOut) round.byes.push(oldId);
+  }
+
+  recalcWinLoss();
+  renderCurrentRound();
+  renderStandings();
+  updateEligibilityDots();
+  netBroadcast();
+}
+
+function deleteCourt(rIdx, cIdx) {
+  if (!canDelete()) { showToast('Your role cannot delete courts', 'warn'); return; }
+  const round = state.rounds[rIdx];
+  if (!round) return;
+  const [removed] = round.courts.splice(cIdx, 1);
+
+  // Players from the deleted court who aren't on other courts become byes
+  const allOnCourt = new Set(round.courts.flatMap(c => [...c.team1, ...c.team2]));
+  const existing   = new Set(round.byes || []);
+  for (const id of [...removed.team1, ...removed.team2]) {
+    if (!allOnCourt.has(id) && !existing.has(id)) {
+      const p = findPlayer(id);
+      if (p && p.name.trim() && !p.removed && !p.sitOut) round.byes.push(id);
+    }
+  }
+
+  // Renumber remaining courts
+  round.courts.forEach((c, i) => { c.courtNum = i + 1; });
+
+  recalcWinLoss();
+  renderCurrentRound();
+  renderStandings();
+  updateEligibilityDots();
+  netBroadcast();
+}
+
+function removeFromByes(rIdx, playerId) {
+  const round = state.rounds[rIdx];
+  if (!round) return;
+  round.byes = round.byes.filter(id => id !== playerId);
+  recalcWinLoss();
+  renderCurrentRound();
+  renderStandings();
+  netBroadcast();
+}
+
+function playerSelectHTML(rIdx, cIdx, team, slotIdx, currentId, canChange) {
+  const selected = state.players.find(p => p.id === currentId);
+  const titleAttr = selected ? ` title="${esc(selected.name || '(unnamed)')}"` : '';
+  const opts = state.players
+    .filter(p => !p.removed)
+    .map(p => `<option value="${p.id}"${p.id === currentId ? ' selected' : ''}>${esc(p.name || '(unnamed)')}</option>`)
+    .join('');
+  const disabled = canChange === false ? ' disabled' : '';
+  return `<select class="player-slot-sel" tabindex="-1"${titleAttr}${disabled} onchange="changeCourtPlayer(${rIdx},${cIdx},'${team}',${slotIdx},this.value)">${opts}</select>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════════════
+// Track which rounds are expanded (open) — key = round index
+const _roundOpen = {};
+
+function updateRoundSelector() {
+  renderAllRounds();
+  updateRoundsHint();
+}
+
+function renderCurrentRound() {
+  renderAllRounds();
+}
+
+function roundStatusBadges(round) {
+  const total = round.courts.length;
+  const complete = round.courts.filter(c => c.score1 !== null && c.score2 !== null).length;
+  const incomplete = total - complete;
+  let badges = '';
+  if (complete > 0)
+    badges += `<span class="round-badge complete">${complete} complete</span>`;
+  if (incomplete > 0)
+    badges += `<span class="round-badge incomplete">${incomplete} incomplete</span>`;
+  if (total === 0)
+    badges += `<span class="round-badge notstarted">no courts</span>`;
+  return badges;
+}
+
+function renderAllRounds() {
+  const container = document.getElementById('rounds-list');
+  if (!state.rounds.length) {
+    container.innerHTML = '<div class="empty-state">Generate a round to begin</div>';
+    return;
+  }
+
+  // Save open-state of existing round boxes before re-render
+  container.querySelectorAll('details.round-box').forEach(det => {
+    const idx = parseInt(det.dataset.roundIdx);
+    _roundOpen[idx] = det.open;
+  });
+
+  let outerHtml = '';
+  const canDel   = canDelete();
+  const canScore = canDo('scores');
+  const isScorer = myRole() === 'scorer';
+  for (let idx = 0; idx < state.rounds.length; idx++) {
+    const round = state.rounds[idx];
+    // Default: newest round open, others closed
+    const isOpen = (idx in _roundOpen) ? _roundOpen[idx] : (idx === state.rounds.length - 1);
+    let courtHtml = '';
+    for (let ci = 0; ci < round.courts.length; ci++) {
+      const c = round.courts[ci];
+      const hasScore = c.score1 !== null || c.score2 !== null;
+      const canChangeP = hasScore ? canChangeCourtWithScore() : roleAtLeast('scorer');
+      const t1sel = c.team1.map((id, si) => playerSelectHTML(idx, ci, 'team1', si, id, canChangeP)).join('');
+      const t2sel = c.team2.map((id, si) => playerSelectHTML(idx, ci, 'team2', si, id, canChangeP)).join('');
+      // Scorers can enter blank scores but not overwrite existing ones
+      const scoreEditable = (team) => {
+        if (!canScore) return false;
+        const existing = team === 1 ? c.score1 : c.score2;
+        if (isScorer && existing !== null) return false;
+        return true;
+      };
+      const scoreAttrs = (team) => {
+        if (scoreEditable(team)) {
+          return `oninput="onScoreInput(${idx},${ci},${team},this.value,this)" onchange="onScoreCommit(${idx},${ci},${team},this.value,this)" onkeydown="onScoreKey(event,${idx},${ci},${team})"`;
+        }
+        const reason = !canScore ? 'Your role is restricted' : 'Scorers cannot overwrite existing scores';
+        return `readonly title="${reason}"`;
+      };
+      const scoreStyle = (team) => {
+        if (scoreEditable(team)) return '';
+        return 'opacity:0.5;cursor:not-allowed;';
+      };
+      courtHtml += `
+        <div class="court-card">
+          <div class="court-header">
+            <span class="court-label">Court ${c.courtNum}</span>
+            <div class="winner-line" id="win-r${idx}-c${ci}">${winnerHTML(c)}</div>
+            ${canDel ? `<button class="btn btn-danger" tabindex="-1" style="padding:2px 7px;font-size:0.7rem;flex-shrink:0;"
+              onclick="deleteCourt(${idx},${ci})" title="Remove this match">✕</button>` : ''}
+          </div>
+          <div class="matchup">
+            <div class="team-block">
+              <div class="team-players">${t1sel}</div>
+              <div class="team-rating">${teamRatingLabel(c.team1)}</div>
+            </div>
+            <div class="score-center">
+              <div class="score-row">
+                <input type="number" class="score-input" min="0" max="99" placeholder="0"
+                  id="score-r${idx}-c${ci}-t1"
+                  value="${c.score1 !== null ? c.score1 : ''}"
+                  ${scoreAttrs(1)}
+                  style="${scoreStyle(1)}">
+                <span class="score-dash">—</span>
+                <input type="number" class="score-input" min="0" max="99" placeholder="0"
+                  id="score-r${idx}-c${ci}-t2"
+                  value="${c.score2 !== null ? c.score2 : ''}"
+                  ${scoreAttrs(2)}
+                  style="${scoreStyle(2)}">
+              </div>
+            </div>
+            <div class="team-block right">
+              <div class="team-players">${t2sel}</div>
+              <div class="team-rating">${teamRatingLabel(c.team2)}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+    if (round.byes && round.byes.length) {
+      const byeItems = round.byes.map(id =>
+        `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;">
+          ${esc(pname(id))}
+          ${canDel ? `<button class="btn btn-danger" tabindex="-1" style="padding:1px 5px;font-size:0.65rem;line-height:1;"
+            onclick="removeFromByes(${idx},'${id}')" title="Remove from byes">✕</button>` : ''}
+        </span>`
+      ).join('');
+      courtHtml += `<div class="bye-section" style="display:flex;align-items:center;flex-wrap:wrap;gap:2px 0;">
+        <strong style="margin-right:6px;">Bye:</strong>${byeItems}</div>`;
+    }
+
+    outerHtml += `
+      <details class="round-box" data-round-idx="${idx}"${isOpen ? ' open' : ''}>
+        <summary>
+          <span class="round-box-title">Round ${round.roundNum}</span>
+          <span class="round-box-badges">${roundStatusBadges(round)}</span>
+          ${canDel ? `<button class="btn btn-danger round-delete-btn" tabindex="-1" onclick="event.preventDefault();event.stopPropagation();deleteRound(${idx})" title="Delete this round">🗑</button>` : ''}
+        </summary>
+        <div class="round-box-body">${courtHtml}</div>
+      </details>`;
+  }
+  container.innerHTML = outerHtml;
+
+  // Attach toggle listeners to save open state
+  container.querySelectorAll('details.round-box').forEach(det => {
+    det.addEventListener('toggle', () => {
+      _roundOpen[parseInt(det.dataset.roundIdx)] = det.open;
+    });
+  });
+}
+
+function renderStandings() {
+  const tbody = document.getElementById('standings-tbody');
+  const standingsPlayers = state.players.filter(p => !p.removed || (p.wins + p.losses) > 0);
+  if (!standingsPlayers.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No data yet</td></tr>';
+    return;
+  }
+  // Sort: win% first, then point diff as tiebreaker
+  const sorted = [...standingsPlayers].sort((a, b) => {
+    const ga = a.wins + a.losses, gb = b.wins + b.losses;
+    const wa = ga === 0 ? -1 : a.wins / ga;
+    const wb = gb === 0 ? -1 : b.wins / gb;
+    if (wb !== wa) return wb - wa;
+    return (b.pointDiff || 0) - (a.pointDiff || 0);
+  });
+  const rc = ['gold', 'silver', 'bronze'];
+  tbody.innerHTML = sorted.map((p, i) => {
+    const g = p.wins + p.losses;
+    const diff = p.pointDiff || 0;
+    const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+    const diffColor = diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--danger)' : 'var(--muted)';
+    const removedStyle = p.removed ? 'opacity:0.5;' : '';
+    const removedTag = p.removed ? ' <span style="font-size:0.6rem;color:var(--muted);font-weight:400;">(removed)</span>' : '';
+    return `<tr style="${removedStyle}">
+      <td class="standings-rank ${rc[i] || ''}">${i + 1}</td>
+      <td class="player-name">${esc(p.name || '(unnamed)')}${removedTag}</td>
+      <td class="win">${p.wins}</td>
+      <td class="loss">${p.losses}</td>
+      <td>${g === 0 ? '—' : (p.wins / g * 100).toFixed(1) + '%'}</td>
+      <td style="color:${diffColor};font-weight:600;">${g === 0 ? '—' : diffStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PRINT
+// ═══════════════════════════════════════════════════════════════════
+function printRound() {
+  // Print all rounds whose collapsible box is currently open
+  const openDetails = document.querySelectorAll('details.round-box[open]');
+  if (!openDetails.length) {
+    alert('Expand at least one round to print it.');
+    return;
+  }
+  const gn = state.settings.groupName ? esc(state.settings.groupName) + ' — ' : '';
+  let html = '';
+  openDetails.forEach(det => {
+    const idx = parseInt(det.dataset.roundIdx);
+    const round = state.rounds[idx];
+    if (!round) return;
+    html += `<div class="pt-title">${gn}Round ${round.roundNum} — Scoresheet</div>
+      <div class="pt-date">Printed ${new Date().toLocaleDateString()}</div>`;
+    for (const c of round.courts) {
+      const box = v => v !== null
+        ? `<span class="pt-box filled">${v}</span>`
+        : `<span class="pt-box"></span>`;
+      html += `<div class="pt-court">
+        <div class="pt-court-lbl">Court ${c.courtNum}</div>
+        <div class="pt-matchup">
+          <div class="pt-team">${esc(c.team1.map(pname).join(' / '))}</div>
+          <div class="pt-scores">${box(c.score1)}<span class="pt-dash"> — </span>${box(c.score2)}</div>
+          <div class="pt-team right">${esc(c.team2.map(pname).join(' / '))}</div>
+        </div>
+      </div>`;
+    }
+    if (round.byes && round.byes.length)
+      html += `<div class="pt-bye"><strong>Bye:</strong> ${round.byes.map(id => esc(pname(id))).join(', ')}</div>`;
+    html += `<div style="page-break-after:always;"></div>`;
+  });
+  document.getElementById('print-area').innerHTML = html;
+  window.print();
+}
+
+function printStandings() {
+  const sorted = [...state.players].sort((a, b) => {
+    const ga = a.wins + a.losses, gb = b.wins + b.losses;
+    const wa = ga === 0 ? -1 : a.wins / ga;
+    const wb = gb === 0 ? -1 : b.wins / gb;
+    if (wb !== wa) return wb - wa;
+    return (b.pointDiff || 0) - (a.pointDiff || 0);
+  });
+  const rows = sorted.map((p, i) => {
+    const g = p.wins + p.losses;
+    const diff = p.pointDiff || 0;
+    return `<tr>
+      <td>${i + 1}</td><td>${esc(p.name || '(unnamed)')}</td>
+      <td>${p.wins}</td><td>${p.losses}</td>
+      <td>${g === 0 ? '—' : (p.wins / g * 100).toFixed(1) + '%'}</td>
+      <td>${g === 0 ? '—' : (diff > 0 ? '+' + diff : diff)}</td>
+    </tr>`;
+  }).join('');
+  const gnS = state.settings.groupName ? esc(state.settings.groupName) + ' — ' : '';
+  document.getElementById('print-area').innerHTML = `
+    <div class="pt-title">${gnS}Standings</div>
+    <div class="pt-date">Printed ${new Date().toLocaleDateString()} · After Round ${state.rounds.length}</div>
+    <table class="pt-table">
+      <thead><tr><th>#</th><th>Player</th><th>W</th><th>L</th><th>Win%</th><th>+/−</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  window.print();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PLAYER REPORT
+// ═══════════════════════════════════════════════════════════════════
+function updateReportSelector() {
+  const sel = document.getElementById('report-player-sel');
+  if (!sel) return;
+  const prev = sel.value;
+  const active = state.players.filter(p => !p.removed && p.name.trim());
+  sel.innerHTML = '<option value="">— choose a player —</option>' +
+    active.map(p => `<option value="${p.id}"${p.id === prev ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  if (prev && active.find(p => p.id === prev)) renderPlayerReport();
+}
+
+function renderPlayerReport() {
+  const sel = document.getElementById('report-player-sel');
+  const container = document.getElementById('report-inner');
+  if (!sel || !container) return;
+  const pid = sel.value;
+  if (!pid) { container.innerHTML = '<div class="empty-state">Select a player to see their report</div>'; return; }
+  const me = findPlayer(pid);
+  if (!me) return;
+
+  // Build per-opponent stats: { with: {w,l,pts_for,pts_against}, against: {w,l,pts_for,pts_against} }
+  const stats = {}; // keyed by opponent id
+  const ensure = id => {
+    if (!stats[id]) stats[id] = { with: {w:0,l:0,pf:0,pa:0}, against: {w:0,l:0,pf:0,pa:0} };
+  };
+
+  for (const round of state.rounds) {
+    for (const c of round.courts) {
+      const onT1 = c.team1.includes(pid);
+      const onT2 = c.team2.includes(pid);
+      if (!onT1 && !onT2) continue;
+      const myTeam = onT1 ? c.team1 : c.team2;
+      const oppTeam = onT1 ? c.team2 : c.team1;
+      const myScore  = onT1 ? c.score1 : c.score2;
+      const oppScore = onT1 ? c.score2 : c.score1;
+      const scored = myScore !== null && oppScore !== null;
+      const iWon = scored && myScore > oppScore;
+      const iLost = scored && oppScore > myScore;
+
+      // Partners
+      for (const partnerId of myTeam) {
+        if (partnerId === pid) continue;
+        ensure(partnerId);
+        if (scored) {
+          if (iWon)  stats[partnerId].with.w++;
+          if (iLost) stats[partnerId].with.l++;
+          stats[partnerId].with.pf += myScore;
+          stats[partnerId].with.pa += oppScore;
+        }
+      }
+      // Opponents
+      for (const oppId of oppTeam) {
+        ensure(oppId);
+        if (scored) {
+          if (iWon)  stats[oppId].against.w++;
+          if (iLost) stats[oppId].against.l++;
+          stats[oppId].against.pf += myScore;
+          stats[oppId].against.pa += oppScore;
+        }
+      }
+    }
+  }
+
+  const otherIds = Object.keys(stats);
+  if (!otherIds.length) {
+    container.innerHTML = `<div class="empty-state">${esc(me.name)} hasn't played any scored games yet.</div>`;
+    return;
+  }
+
+  const g = me.wins + me.losses;
+  const diff = me.pointDiff || 0;
+  const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
+  const diffColor = diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--danger)' : 'var(--muted)';
+
+  // Summary bar
+  let html = `<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;
+      background:rgba(255,255,255,0.04);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.07);">
+    <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:var(--green);">${me.wins}</div><div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Wins</div></div>
+    <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:var(--danger);">${me.losses}</div><div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Losses</div></div>
+    <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;">${g === 0 ? '—' : (me.wins/g*100).toFixed(1)+'%'}</div><div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Win %</div></div>
+    <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:${diffColor};">${g === 0 ? '—' : diffStr}</div><div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Pt Diff</div></div>
+    <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:var(--muted);">${me.byes||0}</div><div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Byes</div></div>
+  </div>`;
+
+  const rowStyle = 'padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:0.8rem;display:grid;gap:6px;align-items:center;';
+  const hdrStyle = 'padding:4px 8px;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);display:grid;gap:6px;';
+  const cols = 'grid-template-columns:1fr 80px 80px 70px;';
+
+  // Partners table
+  const withIds = otherIds.filter(id => stats[id].with.w + stats[id].with.l > 0)
+    .sort((a, b) => {
+      const sa = stats[a].with, sb = stats[b].with;
+      const ga2 = sa.w+sa.l, gb2 = sb.w+sb.l;
+      return (gb2 ? sb.w/gb2 : 0) - (ga2 ? sa.w/ga2 : 0);
+    });
+
+  if (withIds.length) {
+    html += `<div style="font-family:var(--font-display);font-size:0.75rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--green);margin-bottom:6px;">🤝 As Partners</div>
+    <div class="table-wrap" style="margin-bottom:16px;"><div style="${hdrStyle}${cols}"><span>Player</span><span style="text-align:center;">W–L</span><span style="text-align:center;">Win%</span><span style="text-align:center;">Pt Diff</span></div>`;
+    for (const id of withIds) {
+      const s = stats[id].with;
+      const pg = s.w + s.l;
+      const pd = s.pf - s.pa;
+      const pdStr = pd >= 0 ? `+${pd}` : `${pd}`;
+      const pdCol = pd > 0 ? 'var(--green)' : pd < 0 ? 'var(--danger)' : 'var(--muted)';
+      html += `<div style="${rowStyle}${cols}">
+        <span>${esc(pname(id))}</span>
+        <span style="text-align:center;">${s.w}–${s.l}</span>
+        <span style="text-align:center;">${pg ? (s.w/pg*100).toFixed(0)+'%' : '—'}</span>
+        <span style="text-align:center;color:${pdCol};font-weight:600;">${pg ? pdStr : '—'}</span>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+
+  // Opponents table
+  const vsIds = otherIds.filter(id => stats[id].against.w + stats[id].against.l > 0)
+    .sort((a, b) => {
+      const sa = stats[a].against, sb = stats[b].against;
+      const ga2 = sa.w+sa.l, gb2 = sb.w+sb.l;
+      return (gb2 ? sb.w/gb2 : 0) - (ga2 ? sa.w/ga2 : 0);
+    });
+
+  if (vsIds.length) {
+    html += `<div style="font-family:var(--font-display);font-size:0.75rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--warn);margin-bottom:6px;">⚔️ vs Opponents</div>
+    <div class="table-wrap"><div style="${hdrStyle}${cols}"><span>Player</span><span style="text-align:center;">W–L</span><span style="text-align:center;">Win%</span><span style="text-align:center;">Pt Diff</span></div>`;
+    for (const id of vsIds) {
+      const s = stats[id].against;
+      const pg = s.w + s.l;
+      const pd = s.pf - s.pa;
+      const pdStr = pd >= 0 ? `+${pd}` : `${pd}`;
+      const pdCol = pd > 0 ? 'var(--green)' : pd < 0 ? 'var(--danger)' : 'var(--muted)';
+      html += `<div style="${rowStyle}${cols}">
+        <span>${esc(pname(id))}</span>
+        <span style="text-align:center;">${s.w}–${s.l}</span>
+        <span style="text-align:center;">${pg ? (s.w/pg*100).toFixed(0)+'%' : '—'}</span>
+        <span style="text-align:center;color:${pdCol};font-weight:600;">${pg ? pdStr : '—'}</span>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT / IMPORT
+// ═══════════════════════════════════════════════════════════════════
+function exportData() {
+  const data = {
+    _v: 2, exportedAt: new Date().toISOString(),
+    settings: {
+      numCourts:   state.settings.numCourts,
+      mode:        state.settings.mode,
+      rankingMode: state.settings.rankingMode,
+      pairingMode: state.settings.pairingMode,
+      groupName:   state.settings.groupName,
+      weights:     getWeights()
+    },
+    players: state.players, rounds: state.rounds, _nextId,
+    tournament: state.tournament
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const safeName = state.settings.groupName
+    ? state.settings.groupName.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-').toLowerCase() + '-'
+    : '';
+  const a = Object.assign(document.createElement('a'), {
+    href: url, download: `${safeName}pairings-${new Date().toISOString().slice(0, 10)}.json`
+  });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+let _importParsed = null;   // holds parsed JSON while the mode modal is open
+let _importEvt    = null;   // holds the file input event to clear it after
+
+function importPickMode(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  _importEvt = evt;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const d = JSON.parse(e.target.result);
+      if (!Array.isArray(d.players)) throw new Error('Missing players array');
+      _importParsed = d;
+      // Reset radio to "full" each time
+      const radios = document.querySelectorAll('input[name="import-mode"]');
+      radios.forEach(r => { r.checked = (r.value === 'full'); });
+      document.getElementById('imm-filename').textContent = file.name;
+      document.getElementById('import-mode-modal').style.display = 'flex';
+    } catch (err) {
+      alert('Import failed: ' + err.message);
+      evt.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+function cancelImport() {
+  document.getElementById('import-mode-modal').style.display = 'none';
+  if (_importEvt) { _importEvt.target.value = ''; _importEvt = null; }
+  _importParsed = null;
+}
+
+function confirmImport() {
+  const mode = document.querySelector('input[name="import-mode"]:checked')?.value || 'full';
+  document.getElementById('import-mode-modal').style.display = 'none';
+  if (_importParsed) applyImportData(_importParsed, mode);
+  if (_importEvt) { _importEvt.target.value = ''; _importEvt = null; }
+  _importParsed = null;
+}
+
+function applyImportData(d, mode) {
+  // Always import players (resetting per-game stats) and settings
+  state.players = d.players.map(p => {
+    const clean = { gender: 'E', ...p };
+    if (mode === 'roster') {
+      // Strip accumulated stats — keep identity/setup fields only
+      clean.wins = 0; clean.losses = 0; clean.byes = 0;
+      clean.waitCount = 0; clean.pointDiff = 0;
+      clean.removed = false;
+    }
+    return clean;
+  });
+
+  _nextId = d._nextId || (Math.max(0, ...d.players.map(p => parseInt(p.id.slice(1)) || 0)) + 1);
+
+  if (mode === 'roster') {
+    // Clear rounds and tournament entirely
+    state.rounds     = [];
+    state.tournament = null;
+    document.getElementById('print-round-btn').disabled = true;
+  } else {
+    // Full import
+    state.rounds = d.rounds || [];
+    if (d.tournament !== undefined) state.tournament = d.tournament;
+    if (state.rounds.length) document.getElementById('print-round-btn').disabled = false;
+  }
+
+  if (d.settings) {
+    const s = d.settings;
+    if (s.numCourts)   { state.settings.numCourts   = s.numCourts;   document.getElementById('num-courts').value   = s.numCourts; }
+    if (s.mode)        { state.settings.mode         = s.mode;        document.getElementById('game-mode').value    = s.mode; }
+    if (s.rankingMode) { state.settings.rankingMode  = s.rankingMode; document.getElementById('ranking-mode').value = s.rankingMode; }
+    if (s.groupName !== undefined) { state.settings.groupName = s.groupName; document.getElementById('group-name').value = s.groupName; }
+    if (s.pairingMode) {
+      state.settings.pairingMode = s.pairingMode;
+      const pmSel = document.getElementById('pairing-mode');
+      if (pmSel) pmSel.value = s.pairingMode;
+    }
+    if (s.weights) {
+      const w = s.weights;
+      [['w-opp','v-opp',w.opp],['w-prt','v-prt',w.prt],
+       ['w-fair','v-fair',w.fair],['w-like','v-like',w.like],
+       ['w-wait','v-wait',w.wait]].forEach(([sid,vid,v]) => {
+        const val = v ?? 5;
+        document.getElementById(sid).value = val;
+        document.getElementById(vid).textContent = val;
+      });
+    }
+  }
+
+  recalcWinLoss();
+  renderPlayers();
+  updateRoundSelector();
+  if (state.rounds.length) renderAllRounds();
+  updateGenerateBtn();
+  renderStandings();
+  updateSettingsHint();
+  updateWeightsHint();
+  updateRoundsHint();
+  updateStandingsGroupLabel();
+  updatePairingModeUI();
+  netBroadcast();
+
+  const modeLabel = mode === 'roster' ? 'Roster & settings' : 'Full data';
+  showToast(`${modeLabel} imported successfully`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════════════
+function findPlayer(id) { return state.players.find(p => p.id === id); }
+function pname(id) { const p = findPlayer(id); return p ? (p.name || '(unnamed)') : '(removed)'; }
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg, type) {
+  let toast = document.getElementById('_pb_toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = '_pb_toast';
+    toast.style.cssText = [
+      'position:fixed;bottom:22px;left:50%;transform:translateX(-50%)',
+      'padding:10px 20px;border-radius:8px;font-size:0.82rem;font-weight:600',
+      'z-index:9999;pointer-events:none;transition:opacity 0.35s',
+      'max-width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.4)'
+    ].join(';');
+    document.body.appendChild(toast);
+  }
+  toast.style.background = type === 'danger'  ? 'rgba(224,90,90,0.97)'
+                         : type === 'warn'    ? 'rgba(210,155,40,0.97)'
+                         : type === 'success' ? 'rgba(40,160,90,0.97)'
+                         : 'rgba(40,60,100,0.97)';
+  toast.style.color   = '#fff';
+  toast.style.opacity = '1';
+  toast.textContent   = msg;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.opacity = '0'; }, 2800);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TOURNAMENT
+// ═══════════════════════════════════════════════════════════════════
+
+function onPairingModeChange() {
+  if (!roleAtLeast('admin')) {
+    // Revert the select to the actual state value
+    const pmSel = document.getElementById('pairing-mode');
+    if (pmSel) pmSel.value = state.settings.pairingMode || 'normal';
+    showToast('Your role cannot change settings', 'warn');
+    return;
+  }
+  state.settings.pairingMode = document.getElementById('pairing-mode').value;
+  // Previous rounds are kept — if switching to tournament after normal play,
+  // the tournament will use current standings to seed players.
+  checkDoublesOddWarning();
+  updateSettingsHint();
+  updateGenerateBtn();
+  updatePairingModeUI();
+  netBroadcast();
+}
+
+function updatePairingModeUI() {
+  const mode        = state.settings.pairingMode;
+  const isTournament = mode !== 'normal';
+  const card = document.getElementById('tournament-card');
+  if (card) card.style.display = isTournament ? '' : 'none';
+  if (isTournament) renderTournamentCard();
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+// Build standings array for tournament.js: [{ name, rank }] sorted best-first
+function _buildStandingsForTourn() {
+  const active = state.players.filter(p => !p.removed && p.name.trim());
+  const sorted = [...active].sort((a, b) => sortSkill(b.id) - sortSkill(a.id));
+  return sorted.map((p, i) => ({ name: p.name, rank: i + 1 }));
+}
+
+// Build players array for tournament.js: [{ name, initialRank, group }]
+function _buildPlayersForTourn() {
+  return state.players
+    .filter(p => !p.removed && p.name.trim())
+    .map(p => ({
+      name:        p.name,
+      initialRank: p.initialRanking,
+      group:       p.gender === 'M' ? 'M' : p.gender === 'F' ? 'F' : 'Either'
+    }));
+}
+
+// Names of active (non-sitout, non-removed) players
+function _presentPlayerNames() {
+  return state.players
+    .filter(p => !p.removed && !p.sitOut && p.name.trim())
+    .map(p => p.name);
+}
+
+// Name → pairing.html player ID (first match)
+function _nameToId(name) {
+  const p = state.players.find(pl => pl.name === name && !pl.removed);
+  return p ? p.id : null;
+}
+
+// pairing.html player ID → name
+function _idToName(id) {
+  const p = findPlayer(id);
+  return p ? p.name : '';
+}
+
+// Convert tournament.js pairings array → pairing.html round object
+function _tournPairingsToRound(tournPairings, roundNum) {
+  const courts = [];
+  const byeIds = [];
+
+  for (const p of tournPairings) {
+    if (p.type === 'tourn-bye' || p.type === 'bye') {
+      [p.p1, p.p2].filter(Boolean).forEach(name => {
+        const id = _nameToId(name);
+        if (id) byeIds.push(id);
+      });
+    } else {
+      const team1 = [p.p1, p.p2].filter(Boolean).map(_nameToId).filter(Boolean);
+      const team2 = [p.p3, p.p4].filter(Boolean).map(_nameToId).filter(Boolean);
+      if (team1.length && team2.length) {
+        courts.push({
+          courtNum: typeof p.court === 'number' ? p.court : courts.length + 1,
+          team1, team2,
+          score1: null, score2: null,
+          _tournType: p.type
+        });
+      }
+    }
+  }
+
+  return { roundNum, courts, byes: byeIds };
+}
+
+// Convert pairing.html round courts → tournament.js weekScores format
+function _roundToWeekScores(round, tournRound) {
+  return round.courts.map(c => ({
+    round:  tournRound,
+    court:  c.courtNum,
+    p1:     _idToName(c.team1[0]) || '',
+    p2:     _idToName(c.team1[1]) || '',
+    p3:     _idToName(c.team2[0]) || '',
+    p4:     _idToName(c.team2[1]) || '',
+    score1: c.score1 !== null ? c.score1 : '',
+    score2: c.score2 !== null ? c.score2 : ''
+  }));
+}
+
+// True when all courts in the current tournament round have scores entered
+function _isTournRoundComplete() {
+  if (!state.tournament) return false;
+  const round = state.rounds[state.tournament.roundsIdx];
+  if (!round) return false;
+  if (!round.courts.length) return true;  // all byes
+  return round.courts.every(c => c.score1 !== null && c.score2 !== null);
+}
+
+// ── Start / Advance ──────────────────────────────────────────────────
+
+function startTournament() {
+  if (!canDo('generate')) { showToast('Your role cannot generate rounds', 'warn'); return; }
+
+  const mode         = state.settings.pairingMode;  // 'single'|'double'|'rr'|'rr-singles'
+  const doubles      = state.settings.mode === 'doubles' || state.settings.mode === 'mixed-doubles';
+  const mixedDoubles = state.settings.mode === 'mixed-doubles';
+  const courts       = state.settings.numCourts;
+
+  const result = Tournament.generateTournament(
+    _presentPlayerNames(), courts, 1, mode,
+    _buildStandingsForTourn(), doubles, _buildPlayersForTourn(), mixedDoubles
+  );
+
+  if (result.error) { showToast(result.error, 'warn'); return; }
+
+  const roundNum = state.rounds.length + 1;
+  const newRound = _tournPairingsToRound(result.pairings, roundNum);
+  state.rounds.push(newRound);
+
+  state.tournament = {
+    mode,
+    seeds:          result.seeds    || null,
+    rrSeeds:        result.rrSeeds  || null,
+    round:          1,
+    week:           1,
+    doubles:        result.doubles !== undefined ? result.doubles : doubles,
+    mixedDoubles,
+    currentPairings: result.pairings,
+    done:           false,
+    champion:       null,
+    firstRoundIdx:  state.rounds.length - 1,  // index in state.rounds where tournament begins
+    roundsIdx:      state.rounds.length - 1
+  };
+
+  recalcWinLoss();
+  updateRoundSelector();
+  document.getElementById('print-round-btn').disabled = false;
+  updateGenerateBtn();
+  renderAllRounds();
+  renderStandings();
+  renderTournamentCard();
+  maybeNotifyCourtAssignment(newRound);
+  netBroadcast();
+}
+
+function advanceTournamentRound() {
+  if (!canDo('generate')) { showToast('Your role cannot generate rounds', 'warn'); return; }
+  if (!state.tournament) return;
+
+  if (!_isTournRoundComplete()) {
+    showToast('Enter scores for all courts before advancing.', 'warn');
+    return;
+  }
+
+  const t          = state.tournament;
+  const curRound   = state.rounds[t.roundsIdx];
+  const weekScores = _roundToWeekScores(curRound, t.round);
+  const courts     = state.settings.numCourts;
+  const isRR       = t.mode === 'rr' || t.mode === 'rr-singles';
+
+  let result;
+  if (isRR) {
+    result = Tournament.advanceRoundRR(
+      t.rrSeeds, t.currentPairings, weekScores,
+      t.round, courts, t.week,
+      t.doubles, t.mixedDoubles, _buildPlayersForTourn()
+    );
+    t.rrSeeds          = result.rrSeeds;
+    t.currentPairings  = result.pairings;
+    t.round++;
+    // RR has no automatic "done" — show Advance button until user resets
+  } else {
+    result = Tournament.advanceTournament(
+      t.seeds, weekScores, t.round,
+      courts, t.week, t.mode, t.currentPairings
+    );
+    t.seeds           = result.seeds;
+    t.currentPairings = result.pairings;
+    t.round++;
+    t.done     = result.done    || false;
+    t.champion = result.champion || null;
+  }
+
+  const hasPairings = t.currentPairings && t.currentPairings.length;
+
+  if (!t.done && hasPairings) {
+    const roundNum = state.rounds.length + 1;
+    const newRound = _tournPairingsToRound(t.currentPairings, roundNum);
+    state.rounds.push(newRound);
+    t.roundsIdx = state.rounds.length - 1;
+    recalcWinLoss();
+    updateRoundSelector();
+    renderAllRounds();
+    renderStandings();
+    maybeNotifyCourtAssignment(newRound);
+  } else {
+    recalcWinLoss();
+    renderStandings();
+  }
+
+  renderTournamentCard();
+  netBroadcast();
+}
+
+function resetTournament() {
+  if (!confirm('Reset the tournament and clear all rounds?')) return;
+  state.rounds     = [];
+  state.tournament = null;
+  recalcWinLoss();
+  document.getElementById('print-round-btn').disabled = true;
+  updateGenerateBtn();
+  updateRoundSelector();
+  renderAllRounds();
+  renderStandings();
+  renderTournamentCard();
+  netBroadcast();
+}
+
+// ── Rendering ────────────────────────────────────────────────────────
+
+// Build weekPairings + weekScores arrays (tournament.js / player.js format)
+// from the tournament rounds stored in state.rounds.
+function _buildTournamentPairingsList() {
+  const t = state.tournament;
+  if (!t) return { weekPairings: [], weekScores: [] };
+
+  const weekPairings = [];
+  const weekScores   = [];
+  const firstIdx     = t.firstRoundIdx != null ? t.firstRoundIdx : 0;
+  const lastIdx      = t.roundsIdx;
+
+  for (let idx = firstIdx; idx <= lastIdx; idx++) {
+    const round = state.rounds[idx];
+    if (!round) continue;
+    const tournRound = idx - firstIdx + 1;
+
+    for (const court of round.courts) {
+      const p1 = _idToName(court.team1[0]) || '';
+      const p2 = court.team1[1] ? (_idToName(court.team1[1]) || '') : '';
+      const p3 = _idToName(court.team2[0]) || '';
+      const p4 = court.team2[1] ? (_idToName(court.team2[1]) || '') : '';
+      weekPairings.push({
+        round: tournRound, court: court.courtNum,
+        p1, p2, p3, p4,
+        type: court._tournType || 'tourn-game'
+      });
+      if (court.score1 !== null && court.score2 !== null) {
+        weekScores.push({
+          round: tournRound, court: court.courtNum,
+          score1: court.score1, score2: court.score2
+        });
+      }
+    }
+
+    for (const id of (round.byes || [])) {
+      const name = _idToName(id);
+      if (name) weekPairings.push({
+        round: tournRound, court: 'bye',
+        p1: name, p2: '', p3: '', p4: '',
+        type: 'tourn-bye'
+      });
+    }
+  }
+
+  return { weekPairings, weekScores };
+}
+
+// Visual bracket renderer — adapted from player.js buildBracketHTML.
+// Renders round columns with match cards showing names, seeds, and scores.
+function _buildBracketHTML(weekPairings, weekScores) {
+  const lockedRounds = [...new Set(weekPairings.map(p => parseInt(p.round)))].sort((a,b) => a-b);
+  if (!lockedRounds.length) return '<p style="color:var(--muted);font-size:0.82rem;">No rounds yet.</p>';
+
+  // Build seed map from round 1 appearance order
+  const seedMap = {};
+  const r1games = weekPairings
+    .filter(p => parseInt(p.round) === lockedRounds[0] && (p.type === 'tourn-game' || p.type === 'tourn-grand-final'))
+    .sort((a,b) => String(a.court).localeCompare(String(b.court), undefined, {numeric: true}));
+  const r1byes = weekPairings
+    .filter(p => parseInt(p.round) === lockedRounds[0] && (p.type === 'tourn-bye' || p.type === 'bye'));
+  let seed = 1;
+  r1byes.forEach(b => {
+    if (b.p1 && !seedMap[b.p1]) { seedMap[b.p1] = { seed, name: b.p1, name2: b.p2 || '' }; seed++; }
+  });
+  r1games.forEach(g => {
+    if (g.p1 && !seedMap[g.p1]) { seedMap[g.p1] = { seed, name: g.p1, name2: g.p2 || '' }; seed++; }
+    if (g.p3 && !seedMap[g.p3]) { seedMap[g.p3] = { seed, name: g.p3, name2: g.p4 || '' }; seed++; }
+  });
+
+  function getSeed(name) {
+    const s = seedMap[name];
+    return s ? `<span style="font-size:0.68rem;color:var(--muted);">#${s.seed}</span> ` : '';
+  }
+  function teamLabel(p1, p2) {
+    if (!p1) return '?';
+    return getSeed(p1) + (p2
+      ? esc(p1) + ' <span style="color:var(--muted);">&amp;</span> ' + esc(p2)
+      : esc(p1));
+  }
+
+  let html = `<div style="overflow-x:auto;padding-bottom:8px;">
+    <div style="display:flex;gap:0;min-width:fit-content;">`;
+
+  lockedRounds.forEach((r, ri) => {
+    const roundGames = weekPairings.filter(g =>
+      parseInt(g.round) === r && (g.type === 'tourn-game' || g.type === 'tourn-grand-final' || g.type === 'tourn-loser-game'));
+    const roundByes  = weekPairings.filter(g =>
+      parseInt(g.round) === r && (g.type === 'tourn-bye' || g.type === 'bye'));
+    const isLast = ri === lockedRounds.length - 1;
+
+    html += `<div style="display:flex;flex-direction:column;min-width:215px;">
+      <div style="font-size:0.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+                  letter-spacing:0.05em;padding:4px 8px;margin-bottom:6px;text-align:center;">
+        Round ${r}
+      </div>`;
+
+    roundGames.forEach(g => {
+      const sc = weekScores.find(s => parseInt(s.round) === r && String(s.court) === String(g.court));
+      const s1 = sc ? sc.score1 : null, s2 = sc ? sc.score2 : null;
+      const scored   = s1 !== null && s1 !== '' && s2 !== null && s2 !== '';
+      const t1win    = scored && parseInt(s1) > parseInt(s2);
+      const winStyle  = 'color:var(--green);font-weight:700;';
+      const loseStyle = 'color:rgba(255,255,255,0.3);';
+      const t1style  = scored ? (t1win  ? winStyle : loseStyle) : 'color:var(--white);';
+      const t2style  = scored ? (!t1win ? winStyle : loseStyle) : 'color:var(--white);';
+      const sc1Html  = scored
+        ? `<span style="font-size:0.8rem;font-weight:700;color:${t1win?'var(--green)':'rgba(255,255,255,0.45)'};min-width:22px;text-align:right;">${s1}</span>`
+        : `<span style="font-size:0.7rem;color:var(--muted);min-width:22px;text-align:right;">—</span>`;
+      const sc2Html  = scored
+        ? `<span style="font-size:0.8rem;font-weight:700;color:${!t1win?'var(--green)':'rgba(255,255,255,0.45)'};min-width:22px;text-align:right;">${s2}</span>`
+        : `<span style="font-size:0.7rem;color:var(--muted);min-width:22px;text-align:right;">—</span>`;
+      const isGF     = g.type === 'tourn-grand-final';
+      const isLoser  = g.type === 'tourn-loser-game';
+      const borderC  = isGF ? 'rgba(245,200,66,0.5)' : isLoser ? 'rgba(230,155,40,0.3)' : 'rgba(255,255,255,0.08)';
+
+      html += `<div style="background:var(--card-bg);border:1px solid ${borderC};border-radius:8px;padding:7px 10px;margin:2px 4px;">
+        ${isGF   ? '<div style="font-size:0.63rem;color:var(--gold);font-weight:700;letter-spacing:0.07em;text-transform:uppercase;margin-bottom:3px;">Grand Final</div>' : ''}
+        ${isLoser ? '<div style="font-size:0.63rem;color:var(--warn);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:3px;">Losers Bracket</div>' : ''}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <div style="${t1style}font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;">${teamLabel(g.p1, g.p2)}</div>
+          <div style="margin-left:6px;flex-shrink:0;">${sc1Html}</div>
+        </div>
+        <div style="border-top:1px solid rgba(255,255,255,0.06);margin:3px 0;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+          <div style="${t2style}font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;">${teamLabel(g.p3, g.p4)}</div>
+          <div style="margin-left:6px;flex-shrink:0;">${sc2Html}</div>
+        </div>
+      </div>`;
+    });
+
+    roundByes.forEach(g => {
+      html += `<div style="background:rgba(122,155,181,0.07);border:1px dashed rgba(255,255,255,0.1);
+                  border-radius:8px;padding:7px 10px;margin:2px 4px;">
+        <div style="font-size:0.68rem;color:var(--muted);margin-bottom:2px;">⏸ BYE</div>
+        <div style="font-size:0.8rem;color:var(--white);">${teamLabel(g.p1, g.p2)}</div>
+      </div>`;
+    });
+
+    html += `</div>`;
+    if (!isLast) html += `<div style="display:flex;align-items:center;padding:0 2px;color:rgba(255,255,255,0.2);font-size:1.2rem;">›</div>`;
+  });
+
+  html += `</div></div>`;
+
+  // Champion banner — shown when final game is scored and tournament is complete
+  const lastRound = lockedRounds[lockedRounds.length - 1];
+  const lastGames = weekPairings.filter(g =>
+    parseInt(g.round) === lastRound && (g.type === 'tourn-game' || g.type === 'tourn-grand-final'));
+
+  if (lastGames.length === 1) {
+    const fg = lastGames[0];
+    const fs = weekScores.find(s => parseInt(s.round) === lastRound && String(s.court) === String(fg.court));
+    // Use stored champion from state if available; otherwise check if seeds show done
+    const seeds = state.tournament?.seeds;
+    const isDone = state.tournament?.done ||
+      (seeds ? seeds.filter(s => !s.eliminated).length <= 1 : false);
+    if (fs && fs.score1 !== null && fs.score1 !== '' && isDone) {
+      const t1win   = parseInt(fs.score1) > parseInt(fs.score2);
+      const cP1     = t1win ? fg.p1 : fg.p3;
+      const cP2     = t1win ? fg.p2 : fg.p4;
+      const champName = cP2 ? `${esc(cP1)} &amp; ${esc(cP2)}` : esc(cP1);
+      html += `<div style="margin-top:16px;padding:14px 16px;
+        background:linear-gradient(135deg,rgba(245,200,66,0.15),rgba(245,200,66,0.05));
+        border:1px solid rgba(245,200,66,0.4);border-radius:10px;text-align:center;">
+        <div style="font-size:1.1rem;color:var(--gold);font-weight:700;margin-bottom:4px;">🏆 Tournament Champion</div>
+        <div style="font-size:1rem;color:var(--white);font-weight:700;">${champName}</div>
+        <div style="font-size:0.78rem;color:var(--muted);margin-top:4px;">Final: ${fs.score1} – ${fs.score2}</div>
+      </div>`;
+    }
+  }
+
+  return html;
+}
+
+// RR standings table — derived live from round scores (mirrors player.js RR display).
+function _buildRRBracketHTML(weekPairings, weekScores) {
+  const lockedRounds = [...new Set(weekPairings.map(p => parseInt(p.round)))].sort((a,b) => a-b);
+
+  // Collect all participant names
+  const names = [...new Set(weekPairings.flatMap(p => [p.p1,p.p2,p.p3,p.p4].filter(Boolean)))];
+  const stats = {};
+  names.forEach(n => { stats[n] = { wins: 0, losses: 0, byes: 0 }; });
+
+  lockedRounds.forEach(r => {
+    weekPairings.filter(p => parseInt(p.round) === r).forEach(p => {
+      if (p.type === 'tourn-bye' || p.type === 'bye') {
+        if (stats[p.p1]) stats[p.p1].byes++;
+        return;
+      }
+      const sc = weekScores.find(s => parseInt(s.round) === r && String(s.court) === String(p.court));
+      if (!sc || sc.score1 === null || sc.score1 === '') return;
+      const t1win = parseInt(sc.score1) > parseInt(sc.score2);
+      [p.p1, p.p2].filter(Boolean).forEach(n => { if (stats[n]) { if (t1win)  stats[n].wins++;   else stats[n].losses++; } });
+      [p.p3, p.p4].filter(Boolean).forEach(n => { if (stats[n]) { if (!t1win) stats[n].wins++;   else stats[n].losses++; } });
+    });
+  });
+
+  const ranked = Object.entries(stats).sort((a,b) => b[1].wins - a[1].wins);
+  let html = `<div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px;">${lockedRounds.length} round${lockedRounds.length !== 1 ? 's' : ''} played</div>`;
+  html += `<table style="font-size:0.85rem;width:100%;border-collapse:collapse;">
+    <thead><tr>
+      <th style="text-align:left;padding:5px 8px;color:var(--muted);font-weight:500;">#</th>
+      <th style="text-align:left;padding:5px 8px;color:var(--muted);font-weight:500;">Player</th>
+      <th style="text-align:center;padding:5px 8px;color:var(--muted);font-weight:500;">W</th>
+      <th style="text-align:center;padding:5px 8px;color:var(--muted);font-weight:500;">L</th>
+      <th style="text-align:center;padding:5px 8px;color:var(--muted);font-weight:500;">Bye</th>
+    </tr></thead><tbody>`;
+  ranked.forEach(([name, s], i) => {
+    const isFirst = i === 0 && s.wins > 0;
+    html += `<tr style="${isFirst ? 'color:var(--gold);font-weight:700;' : ''}">
+      <td style="padding:4px 8px;">${i + 1}</td>
+      <td style="padding:4px 8px;">${esc(name)}</td>
+      <td style="padding:4px 8px;text-align:center;">${s.wins}</td>
+      <td style="padding:4px 8px;text-align:center;">${s.losses}</td>
+      <td style="padding:4px 8px;text-align:center;">${s.byes}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  return html;
+}
+
+function renderTournamentCard() {
+  const inner = document.getElementById('tournament-inner');
+  if (!inner) return;
+
+  const mode = state.settings.pairingMode;
+  if (mode === 'normal') {
+    inner.innerHTML = '<div class="empty-state">Select a tournament mode in Settings to begin.</div>';
+    return;
+  }
+
+  const LABELS = {
+    single:       'Single Elimination',
+    double:       'Double Elimination',
+    rr:           'Reseeded (Doubles)',
+    'rr-singles': 'Reseeded (Singles)'
+  };
+
+  if (!state.tournament) {
+    // Pre-start panel
+    const present  = _presentPlayerNames().length;
+    const doubles  = state.settings.mode === 'doubles' || state.settings.mode === 'mixed-doubles';
+    const prevRounds = state.rounds.length;
+    const canStart = canDo('generate');
+    inner.innerHTML = `
+      <div style="margin-bottom:4px;font-size:0.8rem;color:var(--muted);line-height:1.7;">
+        <strong style="color:var(--white);">${esc(LABELS[mode] || mode)}</strong> ·
+        ${present} active player${present !== 1 ? 's' : ''}
+        · ${doubles ? 'Doubles' : 'Singles'}
+        ${prevRounds ? `<br><span style="font-size:0.72rem;">Seeded from ${prevRounds} existing round${prevRounds !== 1 ? 's' : ''} of standings</span>` : ''}
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-primary" onclick="startTournament()" ${canStart ? '' : 'disabled title="Your role is restricted"'}>
+          🏆 Start Tournament
+        </button>
+      </div>`;
+    return;
+  }
+
+  const t    = state.tournament;
+  const isRR = t.mode === 'rr' || t.mode === 'rr-singles';
+  const done = t.done || false;
+
+  // Mode label header
+  let html = `<div style="font-family:var(--font-display);font-size:0.72rem;font-weight:700;
+    letter-spacing:0.07em;text-transform:uppercase;color:var(--green);margin-bottom:10px;">
+    ${esc(LABELS[t.mode] || t.mode)}
+  </div>`;
+
+  // Visual bracket / standings
+  const { weekPairings: bp, weekScores: bs } = _buildTournamentPairingsList();
+  html += isRR ? _buildRRBracketHTML(bp, bs) : _buildBracketHTML(bp, bs);
+
+  // Controls
+  const complete = _isTournRoundComplete();
+  if (!done) {
+    const canAdv   = canDo('generate');
+    const nextRound = t.round + 1;
+    html += `
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="advanceTournamentRound()"
+              ${canAdv ? '' : 'disabled title="Your role is restricted"'}>
+        ${isRR ? `Generate Round ${nextRound}` : `Advance to Round ${nextRound}`}
+      </button>
+      ${!complete ? `<span style="font-size:0.7rem;color:var(--warn);">⚠ Enter all scores first</span>` : ''}
+      <button class="btn btn-secondary" onclick="resetTournament()" style="margin-left:auto;">🔄 Reset</button>
+    </div>`;
+  } else {
+    html += `
+    <div style="margin-top:12px;">
+      <button class="btn btn-secondary" onclick="resetTournament()">🔄 New Tournament</button>
+    </div>`;
+  }
+
+  inner.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+renderPlayers();
+renderStandings();
+updateSettingsHint();
+updateWeightsHint();
+updateRoundsHint();
+updateStandingsGroupLabel();
+applyLockUI();
+updatePairingModeUI();
+updateMyPlayerDisplay();
+
+const _urlCode = new URLSearchParams(window.location.search).get('code');
+if (_urlCode) {
+  // Pre-fill the join input so the user sees what code they joined
+  document.getElementById('join-code-input').value = _urlCode.toUpperCase();
+  // Connect first so we receive the host's player list, then show the modal
+  _showModalAfterSync = true;
+  startClient(_urlCode.toUpperCase());
+} else {
+  startHost();
+}
+
+// Close QR modal on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('qr-modal').style.display !== 'none') closeQR();
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// MY PLAYER — identity for push notifications
+// ═══════════════════════════════════════════════════════════════════
+
+function onMyPlayerChange(val) {
+  _myPlayerId = val;
+  localStorage.setItem('pb_myPlayerId', val);
+  updateNotifUI();
+  updateMyPlayerDisplay();
+}
+
+function updateMyPlayerDisplay() {
+  const disp = document.getElementById('my-player-display');
+  if (!disp) return;
+  if (_isHost) {
+    disp.textContent = 'Host 👑';
+    disp.style.color = '#7ab4f5';
+  } else if (_myPlayerId) {
+    const p = findPlayer(_myPlayerId);
+    disp.textContent = p ? (p.name || '(unnamed)') : '(unknown)';
+    disp.style.color = 'var(--white)';
+  } else {
+    disp.textContent = '—';
+    disp.style.color = 'var(--muted)';
+  }
+  updateNotifUI();
+}
+
+function updateMyPlayerSelector() {
+  // Legacy: called from renderPlayers — just refresh display
+  updateMyPlayerDisplay();
+  updateReportSelector();
+}
+
+function updateNotifUI() {
+  const btn = document.getElementById('notif-btn');
+  const status = document.getElementById('notif-status');
+  if (!btn || !status) return;
+
+  const hasId = !!_myPlayerId || _isHost;
+  if (!hasId) {
+    btn.style.display = 'none';
+    status.textContent = '';
+    return;
+  }
+
+  if (!('Notification' in window)) {
+    btn.style.display = 'none';
+    status.textContent = 'Notifications not supported';
+    return;
+  }
+
+  if (Notification.permission === 'granted') {
+    btn.style.display = 'none';
+    status.textContent = '🔔 Court alerts on';
+    status.style.color = 'var(--green)';
+  } else if (Notification.permission === 'denied') {
+    btn.style.display = 'none';
+    status.textContent = 'Alerts blocked — enable in browser settings';
+    status.style.color = 'var(--danger)';
+  } else {
+    btn.style.display = '';
+    status.textContent = '';
+  }
+}
+
+function requestNotifPermission() {
+  if (!('Notification' in window)) return;
+  Notification.requestPermission().then(perm => {
+    updateNotifUI();
+    if (perm === 'granted') showToast('Court alerts enabled! You\'ll be notified when assigned.', 'success');
+  });
+}
+
+// Called after a round is generated — notify the "my player" if they're on a court
+function maybeNotifyCourtAssignment(round) {
+  if (!_myPlayerId) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  // Find if myPlayer is on a court in this round
+  let courtNum = null, teammates = [], opponents = [];
+  for (const c of round.courts) {
+    const onTeam1 = c.team1.includes(_myPlayerId);
+    const onTeam2 = c.team2.includes(_myPlayerId);
+    if (onTeam1 || onTeam2) {
+      courtNum = c.courtNum;
+      teammates = (onTeam1 ? c.team1 : c.team2).filter(id => id !== _myPlayerId).map(pname);
+      opponents = (onTeam1 ? c.team2 : c.team1).map(pname);
+      break;
+    }
+  }
+
+  if (courtNum === null) {
+    // They're on a bye
+    if (round.byes && round.byes.includes(_myPlayerId)) {
+      new Notification('Round ' + round.roundNum + ' — You have a bye', {
+        body: 'You\'re sitting out this round.',
+        icon: './icon-192.png', tag: 'court-assignment', renotify: true, vibrate: [100]
+      });
+    }
+    return;
+  }
+
+  const me = pname(_myPlayerId);
+  let body = `Court ${courtNum} · Round ${round.roundNum}`;
+  if (teammates.length) body += `\nWith: ${teammates.join(' & ')}`;
+  body += `\nvs ${opponents.join(' & ')}`;
+
+  // Use SW push if available, otherwise direct Notification
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'show-notification',
+      title: `🏓 Court ${courtNum} — Round ${round.roundNum}`,
+      body,
+      tag: 'court-assignment'
+    });
+  } else {
+    new Notification(`🏓 Court ${courtNum} — Round ${round.roundNum}`, {
+      body, icon: './icon-192.png', tag: 'court-assignment', renotify: true,
+      vibrate: [200, 100, 200]
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PWA — Inline Manifest (data URI so no external manifest.json needed)
+// ═══════════════════════════════════════════════════════════════════
+(function injectManifest() {
+  const iconB64 = './courtPairIcon.png';
+
+  const manifest = {
+    name: 'Pickleball Court Manager',
+    short_name: 'CourtPair',
+    description: 'Fair court pairings for pickleball and racket sport leagues',
+    start_url: './pairing.html',
+    display: 'standalone',
+    orientation: 'any',
+    background_color: '#0d1b2a',
+    theme_color: '#0d1b2a',
+    icons: [
+      { src: iconB64, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+      { src: iconB64, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+    ]
+  };
+
+  const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+  const link = document.createElement('link');
+  link.rel  = 'manifest';
+  link.href = URL.createObjectURL(blob);
+  document.head.appendChild(link);
+
+  // Apple touch icon + favicon
+  const appleLink = document.createElement('link');
+  appleLink.rel  = 'apple-touch-icon';
+  appleLink.href = iconB64;
+  document.head.appendChild(appleLink);
+
+  const favLink = document.createElement('link');
+  favLink.rel  = 'icon';
+  favLink.type = 'image/png';
+  favLink.href = iconB64;
+  document.head.appendChild(favLink);
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// PWA — Inline Service Worker (blob URL — no sw.js file needed)
+// Shared cache name means index.html and pairing.html SWs cooperate.
+// ═══════════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  // Derive base URL (folder containing these files)
+  const _base = window.location.href.replace(/\/[^/]*(\?.*)?$/, '/');
+
+  const swCode = `
+const CACHE_NAME = 'courtpair-v1';
+const BASE       = '${_base}';
+const APP_FILES  = [
+  BASE + 'index.html',
+  BASE + 'pairing.html',
+  BASE + 'courtPairMarketing.html',
+  BASE + 'css/pairing.css',
+  BASE + 'courtPairIcon.png'
+];
+
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(APP_FILES.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+      .catch(err => {
+        // Non-fatal: some files may not exist yet (e.g. marketing sheet optional)
+        console.warn('[SW] Pre-cache partial failure:', err);
+        return self.skipWaiting();
+      })
+  );
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  const url = e.request.url;
+  // Only handle same-origin requests
+  if (!url.startsWith(BASE)) return;
+
+  e.respondWith(
+    fetch(e.request)
+      .then(resp => {
+        if (resp.ok && (e.request.method === 'GET')) {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        }
+        return resp;
+      })
+      .catch(() => caches.match(e.request)
+        .then(r => r || caches.match(BASE + 'pairing.html'))
+      )
+  );
+});
+
+self.addEventListener('message', e => {
+  if (e.data?.type === 'sw-ready-ping') {
+    e.source.postMessage({ type: 'sw-ready', version: CACHE_NAME });
+  }
+});
+`;
+
+  const swBlob = new Blob([swCode], { type: 'application/javascript' });
+  const swUrl  = URL.createObjectURL(swBlob);
+
+  navigator.serviceWorker.register(swUrl, { type: 'classic' })
+    .then(reg => {
+      console.log('[SW] Registered via blob URL');
+      navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data?.type === 'sw-ready') console.log('[SW] Ready:', e.data.version);
+        if (e.data?.type === 'show-notification' && Notification.permission === 'granted') {
+          new Notification(e.data.title, { body: e.data.body, tag: e.data.tag, renotify: true });
+        }
+      });
+      if (reg.active) reg.active.postMessage({ type: 'sw-ready-ping' });
+    })
+    .catch(err => console.warn('[SW] Blob registration failed (expected on file://):', err.message));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PWA INSTALL PROMPT
+// ═══════════════════════════════════════════════════════════════════
+let _pwaPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _pwaPrompt = e;
+  if (!sessionStorage.getItem('pwa_dismissed')) {
+    document.getElementById('pwa-install-banner').classList.add('visible');
+  }
+});
+
+window.addEventListener('appinstalled', () => {
+  document.getElementById('pwa-install-banner').classList.remove('visible');
+  _pwaPrompt = null;
+  showToast('App installed! Find it on your home screen.', 'success');
+});
+
+function pwaInstall() {
+  if (!_pwaPrompt) return;
+  _pwaPrompt.prompt();
+  _pwaPrompt.userChoice.then(result => {
+    if (result.outcome === 'accepted') {
+      document.getElementById('pwa-install-banner').classList.remove('visible');
+    }
+    _pwaPrompt = null;
+  });
+}
+
+function pwaDismiss() {
+  sessionStorage.setItem('pwa_dismissed', '1');
+  document.getElementById('pwa-install-banner').classList.remove('visible');
+}
+
+// Initial UI state for notifications
+updateNotifUI();
+</script>
+</body>
+</html>
