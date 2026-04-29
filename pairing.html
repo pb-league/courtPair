@@ -190,7 +190,22 @@
     <input type="tel" id="pim-phone" class="form-control" placeholder="e.g. 555-867-5309" style="width:100%;box-sizing:border-box;margin-bottom:12px;" maxlength="30">
     <label class="form-label" style="margin-bottom:4px;display:block;">Email</label>
     <input type="email" id="pim-email" class="form-control" placeholder="e.g. player@example.com" style="width:100%;box-sizing:border-box;margin-bottom:4px;" maxlength="80">
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+    <!-- ── Contact action buttons (host-only) ── -->
+    <div id="pim-actions" style="display:none;margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;">
+      <div style="font-size:0.7rem;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;font-weight:700;margin-bottom:8px;">Invite Player</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button id="pim-sms-btn" class="btn btn-secondary" style="flex:1;min-width:0;font-size:0.78rem;display:flex;align-items:center;justify-content:center;gap:5px;" onclick="pimSendSMS()" title="Open texting app">
+          <span style="font-size:1rem;">💬</span> Text
+        </button>
+        <button id="pim-email-btn" class="btn btn-secondary" style="flex:1;min-width:0;font-size:0.78rem;display:flex;align-items:center;justify-content:center;gap:5px;" onclick="pimSendEmail()" title="Open email app">
+          <span style="font-size:1rem;">✉️</span> Email
+        </button>
+        <button id="pim-contact-btn" class="btn btn-secondary" style="flex:1;min-width:0;font-size:0.78rem;display:flex;align-items:center;justify-content:center;gap:5px;" onclick="pimAddContact()" title="Save to contacts">
+          <span style="font-size:1rem;">👤</span> Contact
+        </button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
       <button class="btn btn-secondary" onclick="closePim()">Cancel</button>
       <button class="btn btn-primary" id="pim-save-btn" onclick="savePim()">Save</button>
     </div>
@@ -384,11 +399,13 @@
         </select>
       </div>
     </div>
+    <div id="court-names-section" style="margin-top:10px;border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;">
+      <div style="font-size:0.72rem;color:var(--muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">Court Names <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional — leave blank to use "Court 1", "Court 2", …)</span></div>
+      <div id="court-names-inputs" style="display:flex;flex-wrap:wrap;gap:6px 10px;"></div>
+    </div>
   </details>
-
-  <!-- ── Players ───────────────────────────────────────────────── -->
   <details class="card" id="players-card" open>
-    <summary class="card-title"><span>👥 Players</span><span class="summary-hint" id="hint-players"></span></summary>
+    <summary class="card-title"><span>👥 Players</span><span class="summary-hint" id="hint-players"></span><button class="btn btn-secondary" onclick="event.preventDefault();event.stopPropagation();emailActivePlayers()" title="Email all active (non-sit-out) players who have an email address" style="font-size:0.72rem;padding:3px 9px;margin-left:8px;">✉ Email</button><button class="btn btn-secondary" onclick="event.preventDefault();event.stopPropagation();smsActivePlayers()" title="Copy phone numbers of active players to clipboard for texting" style="font-size:0.72rem;padding:3px 9px;margin-left:4px;">💬 Text</button></summary>
     <div>
       <div class="table-wrap">
         <table>
@@ -408,7 +425,7 @@
           </tbody>
         </table>
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+      <div style="display:flex;justify-content:flex-start;margin-top:8px;">
         <button class="btn btn-primary" onclick="addPlayer()">+ Add Player</button>
       </div>
     </div>
@@ -475,11 +492,12 @@
           <div id="court-dots" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-bottom:2px;"></div>
           <div class="btn-group">
             <button class="btn btn-primary" id="generate-btn" onclick="generateRound()">Generate Pairings</button>
+            <button class="btn btn-secondary" id="blank-round-btn" onclick="generateBlankRound()" title="Add a blank round with empty court slots you can fill in manually">+ Blank Pairing</button>
             <button class="btn btn-secondary" id="print-round-btn" onclick="printRound()" disabled>🖨 Print Pairings</button>
           </div>
           <label style="display:flex;align-items:center;gap:5px;font-size:0.72rem;color:var(--muted);cursor:pointer;user-select:none;">
             <input type="checkbox" id="partial-gen" style="accent-color:var(--green);cursor:pointer;" onchange="updateGenerateBtn()">
-            Available courts only
+            Available courts and players only
           </label>
         </div>
       </div>
@@ -572,7 +590,7 @@ const JOIN_ONLY = false;
 // ═══════════════════════════════════════════════════════════════════
 const state = {
   settings: { numCourts: 2, mode: 'doubles', rankingMode: 'winPct', groupName: '',
-              pairingMode: 'normal' },
+              pairingMode: 'normal', courtNames: [] },
   players: [],
   rounds: [],
   tournament: null,   // null = not in tournament mode; object when active
@@ -1283,6 +1301,7 @@ function openPim(id) {
   if (!p) return;
   _pimPlayerId = id;
   const canEdit = roleAtLeast('admin') || id === _myPlayerId;
+  const isHost  = roleAtLeast('admin');
   document.getElementById('pim-title').textContent = p.name || 'Player Info';
   document.getElementById('pim-subtitle').textContent = canEdit
     ? 'Contact details are stored in this session and shared with the host.'
@@ -1294,6 +1313,21 @@ function openPim(id) {
   document.getElementById('pim-phone').style.opacity = canEdit ? '' : '0.6';
   document.getElementById('pim-email').style.opacity = canEdit ? '' : '0.6';
   document.getElementById('pim-save-btn').style.display = canEdit ? '' : 'none';
+  // Show invite action buttons only for host, dim unavailable ones
+  const actionsDiv = document.getElementById('pim-actions');
+  actionsDiv.style.display = isHost ? '' : 'none';
+  if (isHost) {
+    const hasPhone = !!(p.phone && p.phone.trim());
+    const hasEmail = !!(p.email && p.email.trim());
+    const smsBtn = document.getElementById('pim-sms-btn');
+    const emailBtn = document.getElementById('pim-email-btn');
+    smsBtn.disabled = !hasPhone;
+    smsBtn.style.opacity = hasPhone ? '' : '0.4';
+    smsBtn.title = hasPhone ? 'Open texting app' : 'No phone number on file';
+    emailBtn.disabled = !hasEmail;
+    emailBtn.style.opacity = hasEmail ? '' : '0.4';
+    emailBtn.title = hasEmail ? 'Open email on file' : 'No email address on file';
+  }
   document.getElementById('player-info-modal').style.display = 'flex';
 }
 
@@ -1311,6 +1345,67 @@ function savePim() {
   closePim();
   renderPlayers();
   netBroadcast();
+}
+
+// ── PIM contact action helpers ───────────────────────────────────────
+function _pimJoinURL() {
+  const base = window.location.href.split('?')[0];
+  if (!_sessionCode) return base;
+  const url = new URL(base);
+  url.searchParams.set('code', _sessionCode);
+  return url.toString();
+}
+
+function pimSendSMS() {
+  const p = findPlayer(_pimPlayerId);
+  if (!p || !p.phone) { showToast('No phone number on file.', 'warn'); return; }
+  const phone = p.phone.trim().replace(/[^\d+]/g, '');
+  const groupName = (state.settings && state.settings.groupName) ? state.settings.groupName : 'Pickleball';
+  const joinURL = _pimJoinURL();
+  const body = encodeURIComponent('Hi ' + (p.name || 'there') + '! Join our ' + groupName + ' session here: ' + joinURL);
+  // iOS uses & as separator; Android uses ?; the semicolon form works on both
+  window.location.href = 'sms:' + phone + '?body=' + body;
+}
+
+function pimSendEmail() {
+  const p = findPlayer(_pimPlayerId);
+  if (!p || !p.email) { showToast('No email address on file.', 'warn'); return; }
+  const groupName = (state.settings && state.settings.groupName) ? state.settings.groupName : 'Pickleball';
+  const joinURL = _pimJoinURL();
+  const subject = encodeURIComponent(groupName + ' — You\u2019re invited!');
+  const body = encodeURIComponent(
+    'Hi ' + (p.name || 'there') + ',\n\nJoin our ' + groupName + ' session here:\n' + joinURL +
+    '\n\nSee you on the court!'
+  );
+  window.location.href = 'mailto:' + encodeURIComponent(p.email.trim()) + '?subject=' + subject + '&body=' + body;
+}
+
+function pimAddContact() {
+  const p = findPlayer(_pimPlayerId);
+  if (!p) return;
+  // Build a vCard 3.0 string
+  const nameParts = (p.name || '').trim().split(/\s+/);
+  const firstName = nameParts[0] || '';
+  const lastName  = nameParts.slice(1).join(' ') || '';
+  let vcard = 'BEGIN:VCARD\r\nVERSION:3.0\r\n';
+  vcard += 'N:' + lastName + ';' + firstName + ';;;\r\n';
+  vcard += 'FN:' + (p.name || '').trim() + '\r\n';
+  if (p.phone && p.phone.trim()) vcard += 'TEL;TYPE=CELL:' + p.phone.trim() + '\r\n';
+  if (p.email && p.email.trim()) vcard += 'EMAIL:' + p.email.trim() + '\r\n';
+  const joinURL = _pimJoinURL();
+  if (joinURL) vcard += 'URL:' + joinURL + '\r\n';
+  const groupName = (state.settings && state.settings.groupName) ? state.settings.groupName : 'Pickleball';
+  vcard += 'NOTE:' + groupName + ' player\r\n';
+  vcard += 'END:VCARD\r\n';
+  const blob = new Blob([vcard], { type: 'text/vcard' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = (p.name || 'player').replace(/\s+/g, '_') + '.vcf';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+  showToast('Contact file downloaded — open it to save to your contacts.', 'success');
 }
 
 function cancelJoin() {
@@ -1421,11 +1516,53 @@ function onSettingsChange() {
   document.getElementById('gender-th').style.color =
     state.settings.mode === 'mixed-doubles' ? 'var(--green)' : '';
   checkDoublesOddWarning();
+  renderCourtNameInputs();
   updateSettingsHint();
   updateGenerateBtn();
   updatePairingModeUI();
   renderCurrentRound();
   renderStandings();
+  netBroadcast();
+}
+
+// Returns the display label for court number n (1-based)
+function courtLabel(n) {
+  const name = (state.settings.courtNames || [])[n - 1];
+  return (name && name.trim()) ? name.trim() : `Court ${n}`;
+}
+
+function renderCourtNameInputs() {
+  const wrap = document.getElementById('court-names-inputs');
+  if (!wrap) return;
+  const n = state.settings.numCourts || 1;
+  const names = state.settings.courtNames || [];
+  const canEdit = roleAtLeast('admin');
+  let html = '';
+  for (let i = 0; i < n; i++) {
+    const val = esc(names[i] || '');
+    html += `<div style="display:flex;align-items:center;gap:4px;">
+      <span style="font-size:0.72rem;color:var(--muted);white-space:nowrap;min-width:46px;">Court ${i + 1}</span>
+      <input type="text" maxlength="30" placeholder="Court ${i + 1}"
+        class="form-control" style="width:120px;padding:3px 7px;font-size:0.8rem;"
+        value="${val}"
+        ${canEdit ? `oninput="onCourtNameChange(${i}, this.value)"` : 'disabled'}
+        title="Display name for Court ${i + 1}">
+    </div>`;
+  }
+  wrap.innerHTML = html;
+}
+
+function onCourtNameChange(idx, value) {
+  if (!roleAtLeast('admin')) return;
+  if (!state.settings.courtNames) state.settings.courtNames = [];
+  // Expand array if needed
+  while (state.settings.courtNames.length <= idx) state.settings.courtNames.push('');
+  state.settings.courtNames[idx] = value;
+  // Trim trailing empty entries
+  while (state.settings.courtNames.length && !state.settings.courtNames[state.settings.courtNames.length - 1].trim()) {
+    state.settings.courtNames.pop();
+  }
+  renderCurrentRound();
   netBroadcast();
 }
 
@@ -1812,17 +1949,19 @@ function getSkill(id) {
 }
 
 function teamRatingLabel(ids) {
+  const filledIds = ids.filter(Boolean);
+  if (!filledIds.length) return '<span style="color:var(--muted);font-size:0.7rem;">—</span>';
   if (state.settings.rankingMode === 'winPct') {
-    if (ids.every(id => { const p = findPlayer(id); return p && (p.wins + p.losses) === 0; }))
+    if (filledIds.every(id => { const p = findPlayer(id); return p && (p.wins + p.losses) === 0; }))
       return 'No games yet';
-    const avg = ids.reduce((s, id) => s + getSkill(id), 0) / ids.length;
+    const avg = filledIds.reduce((s, id) => s + getSkill(id), 0) / filledIds.length;
     return `${(avg * 100).toFixed(0)}% win`;
   }
-  if (ids.length === 1) {
-    const p = findPlayer(ids[0]);
+  if (filledIds.length === 1) {
+    const p = findPlayer(filledIds[0]);
     return p?.initialRanking !== null ? `Rank ${p.initialRanking}` : 'Unranked';
   }
-  const has = ids.filter(id => findPlayer(id)?.initialRanking !== null);
+  const has = filledIds.filter(id => findPlayer(id)?.initialRanking !== null);
   if (!has.length) return 'Unranked';
   const avg = has.reduce((s, id) => s + findPlayer(id).initialRanking, 0) / has.length;
   return `Avg ${avg % 1 === 0 ? avg : avg.toFixed(1)}`;
@@ -2141,8 +2280,45 @@ function generateRound() {
   netBroadcast();
 }
 
-// Returns { courts, playing, byes } for the next normal round, or null if
-// fewer than ppc() eligible players exist.
+// ═══════════════════════════════════════════════════════════════════
+// GENERATE BLANK ROUND
+// ═══════════════════════════════════════════════════════════════════
+function generateBlankRound() {
+  if (!canDo('generate')) { showToast('Your role cannot generate rounds', 'warn'); return; }
+  const numCourts = state.settings.numCourts;
+  const n = ppc(); // players per court
+  const blankTeam = () => Array.from({ length: n / 2 }, () => '');
+  const courts = [];
+  for (let i = 0; i < numCourts; i++) {
+    courts.push({
+      courtNum: i + 1,
+      team1: blankTeam(),
+      team2: blankTeam(),
+      score1: null,
+      score2: null
+    });
+  }
+  const newRound = { roundNum: state.rounds.length + 1, courts, byes: [] };
+  state.rounds.push(newRound);
+  document.getElementById('print-round-btn').disabled = false;
+  updateGenerateBtn();
+  renderAllRounds();
+  renderStandings();
+  renderPlayers();
+  netBroadcast();
+}
+
+function changeCourtNum(rIdx, cIdx, newNum) {
+  const round = state.rounds[rIdx];
+  if (!round) return;
+  const court = round.courts[cIdx];
+  if (!court) return;
+  court.courtNum = parseInt(newNum);
+  renderCurrentRound();
+  netBroadcast();
+}
+
+
 // Mirrors the pool logic in generateRound() — uses the partial-eligible pool
 // when the "finished courts only" checkbox is checked and rounds exist.
 function _previewRoundCounts() {
@@ -2418,14 +2594,14 @@ function changeCourtPlayer(rIdx, cIdx, team, slotIdx, newId) {
   const teamArr = court[team];
   const oldId   = teamArr[slotIdx];
 
-  // Swap in the new player
+  // Swap in the new player (may be '' for unassigned)
   teamArr[slotIdx] = newId;
 
   // Update byes: if newId was sitting as a bye, remove them
-  round.byes = (round.byes || []).filter(id => id !== newId);
+  if (newId) round.byes = (round.byes || []).filter(id => id !== newId);
 
   // If oldId is no longer on any court in this round, add them to byes
-  const allOnCourt = new Set(round.courts.flatMap(c => [...c.team1, ...c.team2]));
+  const allOnCourt = new Set(round.courts.flatMap(c => [...c.team1, ...c.team2]).filter(Boolean));
   if (oldId && !allOnCourt.has(oldId)) {
     const p = findPlayer(oldId);
     if (p && p.name.trim() && !p.removed && !p.sitOut) round.byes.push(oldId);
@@ -2480,12 +2656,13 @@ function removeFromByes(rIdx, playerId) {
 function playerSelectHTML(rIdx, cIdx, team, slotIdx, currentId, canChange) {
   const selected = state.players.find(p => p.id === currentId);
   const titleAttr = selected ? ` title="${esc(selected.name || '(unnamed)')}"` : '';
+  const blankOpt = `<option value=""${!currentId ? ' selected' : ''}>— unassigned —</option>`;
   const opts = state.players
     .filter(p => !p.removed)
     .map(p => `<option value="${p.id}"${p.id === currentId ? ' selected' : ''}>${esc(p.name || '(unnamed)')}</option>`)
     .join('');
   const disabled = canChange === false ? ' disabled' : '';
-  return `<select class="player-slot-sel" tabindex="-1"${titleAttr}${disabled} onchange="changeCourtPlayer(${rIdx},${cIdx},'${team}',${slotIdx},this.value)">${opts}</select>`;
+  return `<select class="player-slot-sel" tabindex="-1"${titleAttr}${disabled} onchange="changeCourtPlayer(${rIdx},${cIdx},'${team}',${slotIdx},this.value)">${blankOpt}${opts}</select>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2619,7 +2796,18 @@ function renderAllRounds() {
       courtHtml += `
         <div class="court-card">
           <div class="court-header">
-            <span class="court-label">Court ${c.courtNum}</span>
+            <span class="court-label" style="display:flex;align-items:center;gap:4px;">Court
+              ${(() => {
+                const maxCourt = Math.max(state.settings.numCourts, round.courts.length, 12);
+                const canEdit = roleAtLeast('scorer');
+                if (!canEdit) return `<span>${c.courtNum}</span>`;
+                let opts = '';
+                for (let cn = 1; cn <= maxCourt; cn++) {
+                  opts += `<option value="${cn}"${cn === c.courtNum ? ' selected' : ''}>${cn}</option>`;
+                }
+                return `<select class="court-num-sel" tabindex="-1" onchange="changeCourtNum(${idx},${ci},this.value)" style="width:46px;padding:1px 2px;font-size:0.8rem;font-family:var(--font-display);font-weight:700;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:inherit;cursor:pointer;">${opts}</select>`;
+              })()}
+            </span>
             <div class="winner-line" id="win-r${idx}-c${ci}">${winnerHTML(c)}</div>
             ${canDel ? `<button class="btn btn-danger" tabindex="-1" style="padding:2px 7px;font-size:0.7rem;flex-shrink:0;"
               onclick="deleteCourt(${idx},${ci})" title="Remove this match">✕</button>` : ''}
@@ -4411,6 +4599,72 @@ function pwaDismiss() {
 
 // Initial UI state for notifications
 updateNotifUI();
+
+// ═══════════════════════════════════════════════════════════════════
+// EMAIL / SMS ACTIVE PLAYERS
+// ═══════════════════════════════════════════════════════════════════
+
+// Build the session join URL (same logic as copyShareURL)
+function _sessionJoinURL() {
+  if (!_sessionCode) return window.location.href.split('?')[0];
+  const url = new URL(window.location.href.split('?')[0]);
+  url.searchParams.set('code', _sessionCode);
+  return url.toString();
+}
+
+// Returns active (non-sit-out, non-removed) players with an email address
+function _activePlayersWithEmail() {
+  return state.players.filter(p => !p.removed && !p.sitOut && p.name.trim() && p.email && p.email.trim());
+}
+
+// Returns active (non-sit-out, non-removed) players with a phone number
+function _activePlayersWithPhone() {
+  return state.players.filter(p => !p.removed && !p.sitOut && p.name.trim() && p.phone && p.phone.trim());
+}
+
+function emailActivePlayers() {
+  const players = _activePlayersWithEmail();
+  if (!players.length) {
+    showToast('No active players have an email address on file.', 'warn');
+    return;
+  }
+  const joinURL = _sessionJoinURL();
+  const groupName = state.settings.groupName ? state.settings.groupName : 'Pickleball';
+  const addresses = players.map(p => p.email.trim()).join(',');
+  const subject = encodeURIComponent(groupName + ' — Join the session');
+  const body = encodeURIComponent(
+    'Hi everyone,\n\nJoin our ' + groupName + ' session here:\n' + joinURL +
+    '\n\nSee you on the court!'
+  );
+  window.location.href = 'mailto:' + addresses + '?subject=' + subject + '&body=' + body;
+}
+
+function smsActivePlayers() {
+  const players = _activePlayersWithPhone();
+  if (!players.length) {
+    showToast('No active players have a phone number on file.', 'warn');
+    return;
+  }
+  const joinURL = _sessionJoinURL();
+  const numbers = players.map(p => p.phone.trim()).join(', ');
+
+  // Copy numbers to clipboard, then open native SMS app with the join URL as the message body
+  navigator.clipboard.writeText(numbers).then(() => {
+    showToast('Phone numbers copied! Paste them into the "To:" field of the texting app that opens.', 'success');
+    // Small delay so the toast is visible before the app switches
+    setTimeout(() => {
+      const groupName = state.settings.groupName ? state.settings.groupName : 'Pickleball';
+      const smsBody = encodeURIComponent('Join our ' + groupName + ' session: ' + joinURL);
+      window.location.href = 'sms:?' + 'body=' + smsBody;
+    }, 600);
+  }).catch(() => {
+    // Clipboard failed — still open SMS, and show numbers in a prompt for manual copying
+    prompt('Copy these numbers into the "To:" field of your texting app:', numbers);
+    const groupName = state.settings.groupName ? state.settings.groupName : 'Pickleball';
+    const smsBody = encodeURIComponent('Join our ' + groupName + ' session: ' + joinURL);
+    window.location.href = 'sms:?' + 'body=' + smsBody;
+  });
+}
 
 // Redraw rank trend chart on window resize
 window.addEventListener('resize', () => {
