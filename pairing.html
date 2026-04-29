@@ -84,12 +84,75 @@
       max-width: 100% !important;
       box-sizing: border-box;
     }
+  /* ── Completed rounds collapsible group ───────────────────── */
+  .completed-rounds-group {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    background: rgba(255,255,255,0.02);
+  }
+  .completed-rounds-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    list-style: none;
+    border-radius: var(--radius);
+    user-select: none;
+  }
+  .completed-rounds-summary::-webkit-details-marker { display: none; }
+  .completed-rounds-summary::before {
+    content: '▶';
+    font-size: 0.6rem;
+    color: var(--muted);
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .completed-rounds-group[open] > .completed-rounds-summary::before {
+    transform: rotate(90deg);
+  }
+  .completed-rounds-title {
+    font-family: var(--font-display);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .completed-rounds-body {
+    padding: 0 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* ── Court rank badge ────────────────────────────────────── */
+  .court-rank-badge {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    margin-left: auto;
+    margin-right: 6px;
+    flex-shrink: 0;
+  }
+  /* ── Standings clickable name ─────────────────────────────── */
+  .standings-name-link {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(255,255,255,0.25);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .standings-name-link:hover {
+    color: var(--green, #4ade80);
+    border-bottom-color: var(--green, #4ade80);
+  }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="js/tournament.js"></script>
 </head>
-<body class="court-bg">
+<body class="court-bg" style="overflow-x:hidden;">
 
 <div id="print-area"></div>
 
@@ -104,9 +167,43 @@
     <div id="jnm-new-row" style="display:none;margin-bottom:10px;">
       <input type="text" id="jnm-new-name" class="form-control" placeholder="Enter your name…" style="width:100%;box-sizing:border-box;" maxlength="40">
     </div>
+    <div id="jnm-contact-row" style="display:none;margin-bottom:10px;">
+      <div id="jnm-contact-status" style="font-size:0.75rem;color:var(--muted);margin-bottom:8px;"></div>
+      <label class="form-label" style="margin-bottom:3px;display:block;">Phone</label>
+      <input type="tel" id="jnm-phone" class="form-control" placeholder="e.g. 555-867-5309" style="width:100%;box-sizing:border-box;margin-bottom:8px;" maxlength="30">
+      <label class="form-label" style="margin-bottom:3px;display:block;">Email</label>
+      <input type="email" id="jnm-email" class="form-control" placeholder="e.g. player@example.com" style="width:100%;box-sizing:border-box;" maxlength="80">
+    </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
       <button class="btn btn-secondary" onclick="cancelJoin()">Cancel</button>
       <button class="btn btn-primary" onclick="confirmJoinName()">Connect</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="player-info-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;">
+  <div style="background:var(--navy-mid);border:1px solid rgba(255,255,255,0.12);border-radius:var(--radius-lg);padding:26px 28px;max-width:360px;width:92%;box-shadow:var(--shadow);">
+    <div style="font-family:var(--font-display);font-size:1rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;" id="pim-title">Player Info</div>
+    <div style="font-size:0.78rem;color:var(--muted);margin-bottom:16px;" id="pim-subtitle">Contact details are stored locally and shared with this session only.</div>
+    <label class="form-label" style="margin-bottom:4px;display:block;">Phone</label>
+    <input type="tel" id="pim-phone" class="form-control" placeholder="e.g. 555-867-5309" style="width:100%;box-sizing:border-box;margin-bottom:12px;" maxlength="30">
+    <label class="form-label" style="margin-bottom:4px;display:block;">Email</label>
+    <input type="email" id="pim-email" class="form-control" placeholder="e.g. player@example.com" style="width:100%;box-sizing:border-box;margin-bottom:4px;" maxlength="80">
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+      <button class="btn btn-secondary" onclick="closePim()">Cancel</button>
+      <button class="btn btn-primary" id="pim-save-btn" onclick="savePim()">Save</button>
+    </div>
+  </div>
+</div>
+<div id="delete-all-rounds-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;">
+  <div style="background:var(--navy-mid);border:1px solid rgba(255,255,255,0.12);border-radius:var(--radius-lg);padding:26px 28px;max-width:360px;width:92%;box-shadow:var(--shadow);">
+    <div style="font-family:var(--font-display);font-size:1rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;color:var(--danger);">⚠ Delete All Rounds?</div>
+    <div style="font-size:0.85rem;color:var(--white);margin-bottom:6px;">This will permanently wipe <strong>all rounds, court assignments, and scores</strong>.</div>
+    <div style="font-size:0.78rem;color:var(--muted);margin-bottom:20px;">Player list is preserved but standings will be reset. This cannot be undone.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="document.getElementById('delete-all-rounds-modal').style.display='none'">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDeleteAllRounds()">Delete All Rounds</button>
     </div>
   </div>
 </div>
@@ -139,6 +236,10 @@
 </div>
 
 
+
+
+
+
 <!-- ── PWA Install Banner ──────────────────────────────────── -->
 <div id="pwa-install-banner">
   <span class="pwa-icon">🏓</span>
@@ -161,17 +262,28 @@
   </div>
 </div>
 
-<div class="topbar">
-  <div class="topbar-brand">
-    <input type="text" id="group-name" class="group-name-input" placeholder="Group Name"
-      maxlength="60" oninput="onGroupNameChange(this.value)">
+<div class="topbar" style="width:100%;box-sizing:border-box;overflow-x:hidden;">
+  <div class="topbar-inner">
+    <div class="topbar-brand">
+      <input type="text" id="group-name" class="group-name-input" placeholder="Group Name"
+        maxlength="60" oninput="onGroupNameChange(this.value)">
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-secondary" onclick="exportData()">⬇ Export</button>
+      <label class="btn btn-secondary" style="cursor:pointer;">
+        ⬆ Import
+        <input type="file" accept=".json" id="import-file" style="display:none" onchange="importPickMode(event)">
+      </label>
+      <button class="btn btn-secondary" onclick="openAboutModal()">ℹ About</button>
+    </div>
   </div>
-  <div class="topbar-right">
-    <button class="btn btn-secondary" onclick="exportData()">⬇ Export</button>
-    <label class="btn btn-secondary" style="cursor:pointer;">
-      ⬆ Import
-      <input type="file" accept=".json" id="import-file" style="display:none" onchange="importPickMode(event)">
-    </label>
+</div>
+
+<!-- ── About Modal (iframe keeps PeerJS connection alive) ──── -->
+<div id="about-modal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,0.85);flex-direction:column;align-items:center;justify-content:center;">
+  <div style="position:relative;width:min(96vw,860px);height:min(90vh,700px);background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.6);">
+    <button onclick="closeAboutModal()" style="position:absolute;top:10px;right:12px;z-index:10;background:rgba(0,0,0,0.55);border:none;color:#fff;font-size:1.3rem;line-height:1;padding:4px 10px;border-radius:6px;cursor:pointer;">✕</button>
+    <iframe id="about-iframe" src="" style="width:100%;height:100%;border:none;display:block;"></iframe>
   </div>
 </div>
 
@@ -214,6 +326,10 @@
           <span id="notif-status" style="font-size:0.68rem;color:var(--muted);"></span>
           <span id="my-role-display" style="font-size:0.68rem;color:var(--muted);"></span>
         </div>
+        <button id="disconnect-btn" class="btn btn-danger" onclick="disconnectSession()" style="display:none;flex-shrink:0;"
+          data-tooltip="Leave this session. You can rejoin later using the same code.">
+          ✕ Disconnect
+        </button>
       </div>
 
       <div class="session-divider-h"></div>
@@ -274,9 +390,6 @@
   <details class="card" id="players-card" open>
     <summary class="card-title"><span>👥 Players</span><span class="summary-hint" id="hint-players"></span></summary>
     <div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
-        <button class="btn btn-primary" onclick="addPlayer()">+ Add Player</button>
-      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -294,6 +407,9 @@
             <tr><td colspan="4" class="empty-state">No players yet — click Add Player</td></tr>
           </tbody>
         </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+        <button class="btn btn-primary" onclick="addPlayer()">+ Add Player</button>
       </div>
     </div>
   </details>
@@ -346,10 +462,17 @@
 
   <!-- ── Rounds ────────────────────────────────────────────────── -->
   <details class="card" id="rounds-card" open>
-    <summary class="card-title"><span>🏓 Rounds</span><span class="summary-hint" id="hint-rounds"></span></summary>
+    <summary class="card-title">
+      <span>🏓 Rounds</span>
+      <span class="summary-hint" id="hint-rounds"></span>
+      <button id="delete-all-rounds-btn" class="btn btn-danger" style="display:none;font-size:0.72rem;padding:3px 9px;margin-left:8px;"
+        onclick="event.preventDefault();event.stopPropagation();deleteAllRounds()"
+        title="Delete all rounds">🗑 Delete All</button>
+    </summary>
     <div>
       <div class="round-controls">
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;margin-left:auto;">
+          <div id="court-dots" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-bottom:2px;"></div>
           <div class="btn-group">
             <button class="btn btn-primary" id="generate-btn" onclick="generateRound()">Generate Pairings</button>
             <button class="btn btn-secondary" id="print-round-btn" onclick="printRound()" disabled>🖨 Print Pairings</button>
@@ -408,7 +531,7 @@
   <details class="card" id="report-card">
     <summary class="card-title">📊 Player Report</summary>
     <div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
         <label class="form-label" style="margin:0;white-space:nowrap;">Select Player:</label>
         <select class="form-control" id="report-player-sel" onchange="renderPlayerReport()" style="max-width:220px;">
           <option value="">— choose a player —</option>
@@ -421,6 +544,29 @@
 </div><!-- /page-wrap -->
 
 <script>
+// ═══════════════════════════════════════════════════════════════════
+// DEPLOYMENT CONSTANTS
+// Adjust these to restrict app behaviour for a specific deployment.
+// ═══════════════════════════════════════════════════════════════════
+
+// Maximum number of players that may be added to the roster.
+// Set to null (or Infinity) for no limit.
+const MAX_PLAYERS = null;
+
+// Maximum total number of games (individual court matchups, summed across
+// all rounds) that may be generated.  Set to null for no limit.
+const MAX_TOTAL_GAMES = null;
+
+// When true, this instance cannot host sessions — the PeerJS host role is
+// disabled and the Copy Link / QR Code buttons are hidden.
+// Remote users can still join a session hosted elsewhere.
+const DISABLE_HOST = false;
+
+// When true, this instance can ONLY join existing sessions and cannot be
+// used to manage players, generate rounds, or act as a host at all.
+// Implies DISABLE_HOST.  All editing controls are hidden on first load.
+const JOIN_ONLY = false;
+
 // ═══════════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════════
@@ -498,6 +644,14 @@ function destroyPeer() {
 }
 
 function startHost() {
+  if (DISABLE_HOST || JOIN_ONLY) {
+    // This deployment is not allowed to host.  Stay offline until the user
+    // joins a remote session.
+    setPill('off', 'join-only');
+    document.getElementById('copy-url-btn').disabled = true;
+    document.getElementById('qr-url-btn').disabled   = true;
+    return;
+  }
   destroyPeer();
   _sessionCode = _rndCode();
   _peer = new Peer(_peerId(_sessionCode), { debug: 0, config: _STUN_CONFIG });
@@ -773,21 +927,39 @@ function updateNetUI() {
   if (codeEl) codeEl.textContent = _sessionCode || '—';
   if (codeInline) codeInline.textContent = _sessionCode || '—';
 
+  const disconnBtn = document.getElementById('disconnect-btn');
+
   if (_isHost) {
     const n = _conns.filter(c => c.open).length;
     const guestTxt = n === 0 ? 'host · no guests' : `host · ${n} guest${n > 1 ? 's' : ''}`;
     setPill('host', guestTxt);
     document.getElementById('copy-url-btn').disabled = false;
     document.getElementById('qr-url-btn').disabled = false;
+    if (disconnBtn) disconnBtn.style.display = 'none'; // hosts don't disconnect, they own the session
   } else if (_hostConn && _hostConn.open) {
     setPill('guest', 'guest');
     document.getElementById('copy-url-btn').disabled = false;
     document.getElementById('qr-url-btn').disabled = false;
+    if (disconnBtn) disconnBtn.style.display = '';
   } else {
     setPill('off', 'offline');
+    if (disconnBtn) disconnBtn.style.display = 'none';
   }
   applyLockUI();
   updateMyPlayerDisplay();
+}
+
+function disconnectSession() {
+  destroyPeer();
+  // Re-init as a fresh host so the app still works standalone after disconnecting,
+  // unless hosting is disabled for this deployment.
+  if (!DISABLE_HOST && !JOIN_ONLY) {
+    startHost();
+  } else {
+    setPill('off', 'offline');
+  }
+  setJoinStatus('Disconnected from session.', 'muted');
+  showToast('Disconnected. You are now working offline.', 'warn');
 }
 
 function setPill(cls, text) {
@@ -940,6 +1112,16 @@ function applyLockUI() {
       partialGen.parentElement.title = canPartialGen ? '' : 'Your role cannot change this setting';
     }
   }
+
+  // ── JOIN_ONLY: reveal management sections once the user has joined a session ─
+  if (JOIN_ONLY && _hostConn && _hostConn.open) {
+    const showIds = ['settings-card', 'players-card', 'weights-card', 'rounds-card',
+                      'standings-card', 'rank-trend-card', 'report-card'];
+    for (const id of showIds) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    }
+  }
 }
 
 
@@ -997,9 +1179,35 @@ function deleteRound(idx) {
   Object.assign(_roundOpen, newOpen);
   recalcWinLoss();
   renderAllRounds();
+  renderPlayers();
+  updateEligibilityDots();
   renderStandings();
   updateGenerateBtn();
   netBroadcast();
+}
+
+function deleteAllRounds() {
+  if (!canDelete()) { showToast('Your role cannot delete rounds', 'warn'); return; }
+  if (state.rounds.length === 0) { showToast('No rounds to delete', 'muted'); return; }
+  const modal = document.getElementById('delete-all-rounds-modal');
+  modal.style.display = 'flex';
+}
+
+function confirmDeleteAllRounds() {
+  document.getElementById('delete-all-rounds-modal').style.display = 'none';
+  state.rounds = [];
+  Object.keys(_roundOpen).forEach(k => delete _roundOpen[k]);
+  // Reset wait counts on all players since rounds are gone
+  state.players.forEach(p => { p.wait = 0; });
+  recalcWinLoss();
+  renderAllRounds();
+  renderPlayers();
+  updateEligibilityDots();
+  renderStandings();
+  updateGenerateBtn();
+  updateDeleteAllRoundsBtn();
+  netBroadcast();
+  showToast('All rounds deleted.', 'warn');
 }
 
 // ── Pre-join name modal ─────────────────────────────────────────────
@@ -1031,13 +1239,78 @@ function showJoinNameModal() {
   }
 
   document.getElementById('jnm-new-row').style.display = 'none';
+  document.getElementById('jnm-contact-row').style.display = 'none';
+  // If a player is pre-selected, show their contact info immediately
+  if (_myPlayerId) {
+    const found = active.find(p => p.id === _myPlayerId);
+    if (found) onJoinNameSelChange(_myPlayerId);
+  }
   document.getElementById('join-name-modal').style.display = 'flex';
 }
 
 function onJoinNameSelChange(val) {
   const newRow = document.getElementById('jnm-new-row');
+  const contactRow = document.getElementById('jnm-contact-row');
   newRow.style.display = (val === '__new__') ? '' : 'none';
   if (val !== '__new__') document.getElementById('jnm-new-name').value = '';
+  // Show contact row for both existing players and new players
+  if (val === '__new__') {
+    document.getElementById('jnm-contact-status').textContent = '';
+    document.getElementById('jnm-phone').value = '';
+    document.getElementById('jnm-email').value = '';
+    contactRow.style.display = '';
+  } else if (val) {
+    const p = findPlayer(val);
+    const hasContact = p && (p.phone || p.email);
+    const statusEl = document.getElementById('jnm-contact-status');
+    statusEl.innerHTML = hasContact
+      ? `ℹ️ Contact on file — update below if needed`
+      : `No contact info yet — optionally add below`;
+    document.getElementById('jnm-phone').value = (p && p.phone) ? p.phone : '';
+    document.getElementById('jnm-email').value = (p && p.email) ? p.email : '';
+    contactRow.style.display = '';
+  } else {
+    contactRow.style.display = 'none';
+  }
+}
+
+
+// ── Player info modal (phone / email) ────────────────────────────────
+let _pimPlayerId = null;
+
+function openPim(id) {
+  const p = findPlayer(id);
+  if (!p) return;
+  _pimPlayerId = id;
+  const canEdit = roleAtLeast('admin') || id === _myPlayerId;
+  document.getElementById('pim-title').textContent = p.name || 'Player Info';
+  document.getElementById('pim-subtitle').textContent = canEdit
+    ? 'Contact details are stored in this session and shared with the host.'
+    : 'Contact details for this player (read-only).';
+  document.getElementById('pim-phone').value = p.phone || '';
+  document.getElementById('pim-email').value = p.email || '';
+  document.getElementById('pim-phone').readOnly = !canEdit;
+  document.getElementById('pim-email').readOnly = !canEdit;
+  document.getElementById('pim-phone').style.opacity = canEdit ? '' : '0.6';
+  document.getElementById('pim-email').style.opacity = canEdit ? '' : '0.6';
+  document.getElementById('pim-save-btn').style.display = canEdit ? '' : 'none';
+  document.getElementById('player-info-modal').style.display = 'flex';
+}
+
+function closePim() {
+  document.getElementById('player-info-modal').style.display = 'none';
+  _pimPlayerId = null;
+}
+
+function savePim() {
+  if (!_pimPlayerId) return;
+  const p = findPlayer(_pimPlayerId);
+  if (!p) return;
+  p.phone = document.getElementById('pim-phone').value.trim();
+  p.email = document.getElementById('pim-email').value.trim();
+  closePim();
+  renderPlayers();
+  netBroadcast();
 }
 
 function cancelJoin() {
@@ -1064,6 +1337,21 @@ function confirmJoinName() {
   if (val === '__new__') {
     chosenName = (document.getElementById('jnm-new-name').value || '').trim();
     if (!chosenName) { showToast('Please enter your name.', 'warn'); return; }
+    // Duplicate name check
+    const dupJoin = state.players.some(pl =>
+      !pl.removed && pl.name.trim().toLowerCase() === chosenName.toLowerCase()
+    );
+    if (dupJoin) {
+      showToast(`"${chosenName}" already exists — select your name from the list or use a different name.`, 'warn');
+      return;
+    }
+    if (MAX_PLAYERS !== null && MAX_PLAYERS !== Infinity) {
+      const current = state.players.filter(p => !p.removed).length;
+      if (current >= MAX_PLAYERS) {
+        showToast(`Player limit reached (max ${MAX_PLAYERS}). Ask the host to add you.`, 'warn');
+        return;
+      }
+    }
     // Generate an id that is guaranteed not to collide with any existing player
     while (state.players.find(p => p.id === 'p' + _nextId)) _nextId++;
     chosenId = 'p' + (_nextId++);
@@ -1076,6 +1364,15 @@ function confirmJoinName() {
   } else {
     showToast('Please select your name.', 'warn');
     return;
+  }
+
+  // Save contact info if provided
+  const phoneVal = (document.getElementById('jnm-phone')?.value || '').trim();
+  const emailVal = (document.getElementById('jnm-email')?.value || '').trim();
+  const chosenPlayer = findPlayer(chosenId);
+  if (chosenPlayer) {
+    if (phoneVal) chosenPlayer.phone = phoneVal;
+    if (emailVal) chosenPlayer.email = emailVal;
   }
 
   _myPlayerId = chosenId;
@@ -1249,8 +1546,47 @@ function updateEligibilityDots() {
     dot.title = ok ? 'Eligible for next round' : p.sitOut ? 'Sitting out' : 'On an unfinished court';
   }
 }
+
+function updateCourtDots() {
+  const wrap = document.getElementById('court-dots');
+  if (!wrap) return;
+
+  const numCourts = state.settings.numCourts || 0;
+  if (numCourts === 0) { wrap.innerHTML = ''; return; }
+
+  // Find court numbers that currently have an unfinished game
+  const busyCourtNums = new Set();
+  for (const round of state.rounds) {
+    for (const c of round.courts) {
+      if (c.score1 === null || c.score2 === null) {
+        busyCourtNums.add(c.courtNum);
+      }
+    }
+  }
+
+  // If no rounds yet, all courts are available
+  const hasRounds = state.rounds.length > 0;
+
+  let html = '';
+  for (let i = 1; i <= numCourts; i++) {
+    const available = !hasRounds || !busyCourtNums.has(i);
+    const color = available ? 'var(--green)' : 'rgba(122,155,181,0.2)';
+    const tip   = available ? `Court ${i} — available` : `Court ${i} — in progress`;
+    html += `<span style="display:flex;align-items:center;gap:3px;font-size:0.7rem;color:var(--muted);" title="${tip}">
+      <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${color};display:inline-block;"></span>Court ${i}
+    </span>`;
+  }
+  wrap.innerHTML = html;
+}
 function addPlayer() {
   if (!canDo('addplayer')) { showToast('Your role cannot add players', 'warn'); return; }
+  if (MAX_PLAYERS !== null && MAX_PLAYERS !== Infinity) {
+    const current = state.players.filter(p => !p.removed).length;
+    if (current >= MAX_PLAYERS) {
+      showToast(`Player limit reached (max ${MAX_PLAYERS}).`, 'warn');
+      return;
+    }
+  }
   const id = 'p' + (_nextId++);
   state.players.push({ id, name: '', gender: 'E', initialRanking: null, wins: 0, losses: 0, byes: 0, waitCount: 0, sitOut: false });
   renderPlayers();
@@ -1291,7 +1627,34 @@ function removePlayer(id) {
 
 function onNameChange(id, val) {
   const p = findPlayer(id);
-  if (p) p.name = val.trim();
+  if (!p) return;
+  const trimmed = val.trim();
+
+  // Duplicate name check — compare case-insensitively against all other active players
+  const duplicate = state.players.some(pl =>
+    pl.id !== id && !pl.removed && pl.name.trim().toLowerCase() === trimmed.toLowerCase() && trimmed !== ''
+  );
+
+  // Find the input element and mark it visually
+  const inp = document.querySelector(`#players-tbody input[oninput*="${id}"].player-name-input`);
+  if (inp) {
+    if (duplicate) {
+      inp.style.outline = '2px solid var(--danger, #e05c5c)';
+      inp.style.background = 'rgba(224,92,92,0.08)';
+      inp.title = 'A player with this name already exists.';
+    } else {
+      inp.style.outline = '';
+      inp.style.background = '';
+      inp.title = '';
+    }
+  }
+
+  if (duplicate) {
+    showToast(`"${trimmed}" already exists — please use a different name.`, 'warn');
+    return; // Don't save the duplicate name
+  }
+
+  p.name = trimmed;
   updateGenerateBtn();
   renderStandings();
   clearTimeout(_nameDebounceT);
@@ -1391,6 +1754,9 @@ function renderPlayers() {
           <input class="player-name-input" type="text" placeholder="Name…"
             value="${esc(p.name)}" oninput="onNameChange('${p.id}', this.value)" style="flex:1;min-width:0;width:0;"
             ${roleAtLeast('admin') || p.id === _myPlayerId ? '' : 'readonly'}>
+          <button title="${(p.phone||p.email) ? 'Contact info: ' + [p.phone,p.email].filter(Boolean).join(' / ') : 'Add contact info'}"
+            onclick="openPim('${p.id}')"
+            style="flex-shrink:0;background:none;border:none;cursor:pointer;padding:0 2px;font-size:0.8rem;opacity:${(p.phone||p.email)?'1':'0.3'};">📋</button>
         </div>
       </td>
       <td style="text-align:center;">
@@ -1741,6 +2107,20 @@ function generateRound() {
     alert('Could not fill any courts. Reduce court count or add more players.');
     return;
   }
+  // Check total-game limit before committing
+  if (MAX_TOTAL_GAMES !== null && MAX_TOTAL_GAMES !== Infinity) {
+    const existingGames = state.rounds.reduce((sum, r) => sum + r.courts.length, 0);
+    if (existingGames + courts.length > MAX_TOTAL_GAMES) {
+      const remaining = MAX_TOTAL_GAMES - existingGames;
+      if (remaining <= 0) {
+        showToast(`Game limit reached (max ${MAX_TOTAL_GAMES} total games). No more rounds can be generated.`, 'warn');
+        return;
+      }
+      // Trim courts to fit within the limit
+      courts.splice(remaining);
+      showToast(`Game limit: only ${remaining} more game${remaining !== 1 ? 's' : ''} allowed. Round trimmed.`, 'warn');
+    }
+  }
   const usedIds = new Set(courts.flatMap(c => [...c.team1, ...c.team2]));
   // Byes: eligible players not placed (partial mode) or all non-placed non-sitout players (normal)
   const byePool = isPartial
@@ -1756,6 +2136,7 @@ function generateRound() {
   updateGenerateBtn();
   renderAllRounds();
   renderStandings();
+  renderPlayers();
   maybeNotifyCourtAssignment(newRound);
   netBroadcast();
 }
@@ -1790,11 +2171,23 @@ function _previewRoundCounts() {
 function updateGenerateBtn() {
   const btn = document.getElementById('generate-btn');
   if (!btn) return;
+  updateCourtDots();
   if (state.settings.pairingMode !== 'normal') {
     btn.textContent = 'Tournament Active';
     btn.disabled    = true;
     btn.title       = 'Use Tournament card to manage rounds';
     return;
+  }
+
+  // Game limit check
+  if (MAX_TOTAL_GAMES !== null && MAX_TOTAL_GAMES !== Infinity) {
+    const existingGames = state.rounds.reduce((sum, r) => sum + r.courts.length, 0);
+    if (existingGames >= MAX_TOTAL_GAMES) {
+      btn.textContent = `Generate Pairings  (game limit of ${MAX_TOTAL_GAMES} reached)`;
+      btn.disabled    = true;
+      btn.title       = `Maximum total games (${MAX_TOTAL_GAMES}) reached`;
+      return;
+    }
   }
 
   const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
@@ -1832,20 +2225,55 @@ function updateAllRoundBadges() {
 
 // Advance focus to the next score input after the current one
 function advanceScoreFocus(rIdx, cIdx, team) {
-  // Order: t1 → t2 of same court → t1 of next court (within all rendered score inputs)
+  // Order: t1 → t2 of same court → t1 of next court → t1 of first court of next round
   const nextId = team === 1
     ? `score-r${rIdx}-c${cIdx}-t2`
     : `score-r${rIdx}-c${cIdx + 1}-t1`;
   const next = document.getElementById(nextId);
-  if (next) { next.focus(); next.select(); }
+  if (next) { next.focus(); next.select(); return; }
+  // At the last team2 input of the last court in this round — jump to next round
+  if (team === 2) {
+    const nextRound = document.getElementById(`score-r${rIdx + 1}-c0-t1`);
+    if (nextRound) { nextRound.focus(); nextRound.select(); }
+  }
 }
 
 function onScoreKey(e, rIdx, cIdx, team) {
+  if (e.key === ' ') {
+    e.preventDefault();
+    const inputEl = e.target;
+    const thisVal = inputEl.value.trim();
+    if (thisVal === '' || isNaN(parseInt(thisVal))) return; // nothing entered yet
+    const otherId = team === 1
+      ? `score-r${rIdx}-c${cIdx}-t2`
+      : `score-r${rIdx}-c${cIdx}-t1`;
+    const otherEl = document.getElementById(otherId);
+    if (!otherEl || otherEl.value !== '') return; // other score already filled
+    otherEl.value = 11;
+    // Commit both sides then advance past this court
+    onScoreCommit(rIdx, cIdx, team, thisVal, inputEl);
+    onScoreCommit(rIdx, cIdx, team === 1 ? 2 : 1, '11', otherEl);
+    advanceScoreFocus(rIdx, cIdx, 2); // move to next court (past team2)
+    return;
+  }
   if (e.key === 'Enter') {
     e.preventDefault();
     const inputEl = e.target;
     onScoreCommit(rIdx, cIdx, team, inputEl.value, inputEl);
     advanceScoreFocus(rIdx, cIdx, team);
+  } else if (e.key === 'Tab' && !e.shiftKey) {
+    // Prevent Tab from landing on the round <summary> heading between rounds
+    const nextSameRound = team === 1
+      ? document.getElementById(`score-r${rIdx}-c${cIdx}-t2`)
+      : document.getElementById(`score-r${rIdx}-c${cIdx + 1}-t1`);
+    const nextNextRound = !nextSameRound && team === 2
+      ? document.getElementById(`score-r${rIdx + 1}-c0-t1`)
+      : null;
+    if (nextNextRound) {
+      e.preventDefault();
+      nextNextRound.focus();
+      nextNextRound.select();
+    }
   }
 }
 
@@ -1926,6 +2354,8 @@ function onScoreCommit(rIdx, cIdx, team, val, inputEl) {
   updateGenerateBtn();
   const el = document.getElementById(`win-r${rIdx}-c${cIdx}`);
   if (el) el.innerHTML = winnerHTML(court);
+  const badgeEl = document.getElementById(`rank-badge-r${rIdx}-c${cIdx}`);
+  if (badgeEl) badgeEl.innerHTML = courtRankBadge(court.team1, court.team2, court.score1, court.score2);
   updateAllRoundBadges();
   netBroadcast();
 }
@@ -2004,6 +2434,7 @@ function changeCourtPlayer(rIdx, cIdx, team, slotIdx, newId) {
   recalcWinLoss();
   renderCurrentRound();
   renderStandings();
+  renderPlayers();
   updateEligibilityDots();
   netBroadcast();
 }
@@ -2030,6 +2461,7 @@ function deleteCourt(rIdx, cIdx) {
   recalcWinLoss();
   renderCurrentRound();
   renderStandings();
+  renderPlayers();
   updateEligibilityDots();
   netBroadcast();
 }
@@ -2041,6 +2473,7 @@ function removeFromByes(rIdx, playerId) {
   recalcWinLoss();
   renderCurrentRound();
   renderStandings();
+  renderPlayers();
   netBroadcast();
 }
 
@@ -2084,7 +2517,60 @@ function roundStatusBadges(round) {
   return badges;
 }
 
+function updateDeleteAllRoundsBtn() {
+  const btn = document.getElementById('delete-all-rounds-btn');
+  if (!btn) return;
+  btn.style.display = (state.rounds.length > 0 && canDelete()) ? '' : 'none';
+}
+
+// ── Rank/upset badge for court cards (global so onScoreCommit can call it) ──
+function courtRankBadge(team1ids, team2ids, score1, score2) {
+  const allPlayers = state.players.filter(p => !p.removed || (p.wins + p.losses) > 0);
+  const useInit = allPlayers.some(p => p.initialRanking !== null && p.initialRanking !== undefined);
+  const rankMapLocal = {};
+  if (useInit) {
+    allPlayers.forEach(p => {
+      if (p.initialRanking !== null && p.initialRanking !== undefined)
+        rankMapLocal[p.id] = p.initialRanking;
+    });
+  } else {
+    const sorted = [...allPlayers].sort((a, b) => {
+      const ga = a.wins + a.losses, gb = b.wins + b.losses;
+      const wa = ga === 0 ? -1 : a.wins / ga;
+      const wb = gb === 0 ? -1 : b.wins / gb;
+      if (wb !== wa) return wb - wa;
+      return (b.pointDiff || 0) - (a.pointDiff || 0);
+    });
+    sorted.forEach((p, i) => { rankMapLocal[p.id] = i + 1; });
+  }
+  function avgRank(ids) {
+    const vals = ids.map(id => rankMapLocal[id]).filter(v => v !== undefined && v !== null);
+    if (!vals.length) return null;
+    return vals.reduce((s, v) => s + v, 0) / vals.length;
+  }
+  function fmtRank(r) {
+    const prefix = useInit ? 'R' : '#';
+    return r % 1 === 0 ? `${prefix}${r}` : `${prefix}${r.toFixed(1)}`;
+  }
+  const r1 = avgRank(team1ids);
+  const r2 = avgRank(team2ids);
+  if (r1 === null && r2 === null) return '';
+  const r1str = r1 !== null ? fmtRank(r1) : '—';
+  const r2str = r2 !== null ? fmtRank(r2) : '—';
+  let upsetBadge = '';
+  if (score1 !== null && score2 !== null && r1 !== null && r2 !== null && Math.abs(r1 - r2) > 0.01) {
+    const t1won = score1 > score2;
+    const t1upset = t1won && r1 > r2;
+    const t2upset = !t1won && r2 > r1;
+    if (t1upset || t2upset) {
+      upsetBadge = ` <span style="color:var(--warn);font-weight:700;">⚡ Upset</span>`;
+    }
+  }
+  return `<div class="court-rank-badge-inner" style="font-size:0.65rem;color:var(--muted);text-align:center;margin-top:4px;letter-spacing:0.03em;">${r1str} vs ${r2str}${upsetBadge}</div>`;
+}
+
 function renderAllRounds() {
+  updateDeleteAllRoundsBtn();
   const container = document.getElementById('rounds-list');
   if (!state.rounds.length) {
     container.innerHTML = '<div class="empty-state">Generate a round to begin</div>';
@@ -2101,9 +2587,10 @@ function renderAllRounds() {
   const canDel   = canDelete();
   const canScore = canDo('scores');
   const isScorer = myRole() === 'scorer';
-  for (let idx = 0; idx < state.rounds.length; idx++) {
+
+  // Helper to build a single round's HTML
+  function buildRoundHtml(idx) {
     const round = state.rounds[idx];
-    // Default: newest round open, others closed
     const isOpen = (idx in _roundOpen) ? _roundOpen[idx] : (idx === state.rounds.length - 1);
     let courtHtml = '';
     for (let ci = 0; ci < round.courts.length; ci++) {
@@ -2112,7 +2599,6 @@ function renderAllRounds() {
       const canChangeP = hasScore ? canChangeCourtWithScore() : roleAtLeast('scorer');
       const t1sel = c.team1.map((id, si) => playerSelectHTML(idx, ci, 'team1', si, id, canChangeP)).join('');
       const t2sel = c.team2.map((id, si) => playerSelectHTML(idx, ci, 'team2', si, id, canChangeP)).join('');
-      // Scorers can enter blank scores but not overwrite existing ones
       const scoreEditable = (team) => {
         if (!canScore) return false;
         const existing = team === 1 ? c.score1 : c.score2;
@@ -2157,6 +2643,7 @@ function renderAllRounds() {
                   ${scoreAttrs(2)}
                   style="${scoreStyle(2)}">
               </div>
+              <div id="rank-badge-r${idx}-c${ci}">${courtRankBadge(c.team1, c.team2, c.score1, c.score2)}</div>
             </div>
             <div class="team-block right">
               <div class="team-players">${t2sel}</div>
@@ -2176,7 +2663,57 @@ function renderAllRounds() {
       courtHtml += `<div class="bye-section" style="display:flex;align-items:center;flex-wrap:wrap;gap:2px 0;">
         <strong style="margin-right:6px;">Bye:</strong>${byeItems}</div>`;
     }
+    return { courtHtml, isOpen, round };
+  }
 
+  // Separate completed vs active rounds
+  // A round is "completed" if all its courts have scores (and it's not the last round)
+  const isRoundComplete = (idx) => {
+    const round = state.rounds[idx];
+    if (!round.courts.length) return false;
+    return round.courts.every(c => c.score1 !== null && c.score2 !== null);
+  };
+
+  const completedIdxs = [];
+  const activeIdxs = [];
+  for (let idx = 0; idx < state.rounds.length; idx++) {
+    if (isRoundComplete(idx) && idx < state.rounds.length - 1) {
+      completedIdxs.push(idx);
+    } else {
+      activeIdxs.push(idx);
+    }
+  }
+
+  // Completed rounds collapsible group
+  if (completedIdxs.length > 0) {
+    const compKey = '__completedGroup';
+    const groupOpen = (compKey in _roundOpen) ? _roundOpen[compKey] : false;
+    let completedInner = '';
+    for (const idx of completedIdxs) {
+      const { courtHtml, isOpen, round } = buildRoundHtml(idx);
+      completedInner += `
+        <details class="round-box" data-round-idx="${idx}"${isOpen ? ' open' : ''}>
+          <summary>
+            <span class="round-box-title">Round ${round.roundNum}</span>
+            <span class="round-box-badges">${roundStatusBadges(round)}</span>
+            ${canDel ? `<button class="btn btn-danger round-delete-btn" tabindex="-1" onclick="event.preventDefault();event.stopPropagation();deleteRound(${idx})" title="Delete this round">🗑</button>` : ''}
+          </summary>
+          <div class="round-box-body">${courtHtml}</div>
+        </details>`;
+    }
+    outerHtml += `
+      <details class="completed-rounds-group" data-group-key="${compKey}"${groupOpen ? ' open' : ''}>
+        <summary class="completed-rounds-summary">
+          <span class="completed-rounds-title">✅ Completed Rounds</span>
+          <span class="round-badge complete" style="margin-left:6px;">${completedIdxs.length} round${completedIdxs.length !== 1 ? 's' : ''}</span>
+        </summary>
+        <div class="completed-rounds-body">${completedInner}</div>
+      </details>`;
+  }
+
+  // Active/incomplete rounds
+  for (const idx of activeIdxs) {
+    const { courtHtml, isOpen, round } = buildRoundHtml(idx);
     outerHtml += `
       <details class="round-box" data-round-idx="${idx}"${isOpen ? ' open' : ''}>
         <summary>
@@ -2187,12 +2724,18 @@ function renderAllRounds() {
         <div class="round-box-body">${courtHtml}</div>
       </details>`;
   }
+
   container.innerHTML = outerHtml;
 
   // Attach toggle listeners to save open state
   container.querySelectorAll('details.round-box').forEach(det => {
     det.addEventListener('toggle', () => {
       _roundOpen[parseInt(det.dataset.roundIdx)] = det.open;
+    });
+  });
+  container.querySelectorAll('details.completed-rounds-group').forEach(det => {
+    det.addEventListener('toggle', () => {
+      _roundOpen[det.dataset.groupKey] = det.open;
     });
   });
 }
@@ -2223,7 +2766,7 @@ function renderStandings() {
     const removedTag = p.removed ? ' <span style="font-size:0.6rem;color:var(--muted);font-weight:400;">(removed)</span>' : '';
     return `<tr style="${removedStyle}">
       <td class="standings-rank ${rc[i] || ''}">${i + 1}</td>
-      <td class="player-name">${esc(p.name || '(unnamed)')}${removedTag}</td>
+      <td class="player-name"><a href="#" class="standings-name-link" onclick="event.preventDefault();openPlayerReport('${p.id}')">${esc(p.name || '(unnamed)')}</a>${removedTag}</td>
       <td class="win">${p.wins}</td>
       <td class="loss">${p.losses}</td>
       <td>${g === 0 ? '—' : (p.wins / g * 100).toFixed(1) + '%'}</td>
@@ -2507,6 +3050,17 @@ function updateReportSelector() {
   if (prev && active.find(p => p.id === prev)) renderPlayerReport();
 }
 
+function openPlayerReport(pid) {
+  // Open the report card if collapsed
+  const reportCard = document.getElementById('report-card');
+  if (reportCard) reportCard.open = true;
+  // Set the select value and render
+  const sel = document.getElementById('report-player-sel');
+  if (sel) { sel.value = pid; renderPlayerReport(); }
+  // Scroll into view
+  if (reportCard) reportCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function renderPlayerReport() {
   const sel = document.getElementById('report-player-sel');
   const container = document.getElementById('report-inner');
@@ -2570,6 +3124,86 @@ function renderPlayerReport() {
   const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
   const diffColor = diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--danger)' : 'var(--muted)';
 
+  // Build rank map for upset detection.
+  // Prefer initialRanking (explicit seed, lower = better) when available for any player.
+  // Fall back to current standings rank if no one has an initialRanking set.
+  const standingsPlayers = state.players.filter(p => !p.removed || (p.wins + p.losses) > 0);
+  const hasInitialRanks = standingsPlayers.some(p => p.initialRanking !== null && p.initialRanking !== undefined);
+
+  // rankMap: id -> rank value (lower = better ranked in both schemes)
+  // rankLabel: id -> display string
+  const rankMap = {};
+  const rankLabel = {};
+
+  if (hasInitialRanks) {
+    // Use initialRanking directly (lower = better seeded)
+    standingsPlayers.forEach(p => {
+      if (p.initialRanking !== null && p.initialRanking !== undefined) {
+        rankMap[p.id] = p.initialRanking;
+        rankLabel[p.id] = `R${p.initialRanking}`;
+      }
+    });
+  } else {
+    // Fall back to standings rank (1 = best win%)
+    const sortedForRank = [...standingsPlayers].sort((a, b) => {
+      const ga = a.wins + a.losses, gb = b.wins + b.losses;
+      const wa = ga === 0 ? -1 : a.wins / ga;
+      const wb = gb === 0 ? -1 : b.wins / gb;
+      if (wb !== wa) return wb - wa;
+      return (b.pointDiff || 0) - (a.pointDiff || 0);
+    });
+    sortedForRank.forEach((p, i) => {
+      rankMap[p.id] = i + 1;
+      rankLabel[p.id] = `#${i + 1}`;
+    });
+  }
+
+  // Helper: average rank of a team (lower = better ranked in both schemes)
+  function teamAvgRank(ids) {
+    const valid = ids.filter(id => rankMap[id] !== undefined);
+    if (!valid.length) return null;
+    return valid.reduce((s, id) => s + rankMap[id], 0) / valid.length;
+  }
+
+  function teamRankDisplay(ids) {
+    const valid = ids.filter(id => rankMap[id] !== undefined);
+    if (!valid.length) return '';
+    if (valid.length === 1) return rankLabel[valid[0]] || '';
+    const avg = valid.reduce((s, id) => s + rankMap[id], 0) / valid.length;
+    const prefix = hasInitialRanks ? 'R' : '#';
+    return `avg ${prefix}${avg % 1 === 0 ? avg : avg.toFixed(1)}`;
+  }
+
+  // Build per-game log with upset label
+  const gameLog = [];
+  for (const round of state.rounds) {
+    for (const c of round.courts) {
+      const onT1 = c.team1.includes(pid);
+      const onT2 = c.team2.includes(pid);
+      if (!onT1 && !onT2) continue;
+      if (c.score1 === null || c.score2 === null) continue;
+      const myTeam  = onT1 ? c.team1 : c.team2;
+      const oppTeam = onT1 ? c.team2 : c.team1;
+      const myScore  = onT1 ? c.score1 : c.score2;
+      const oppScore = onT1 ? c.score2 : c.score1;
+      const iWon = myScore > oppScore;
+      const myAvgRank  = teamAvgRank(myTeam);
+      const oppAvgRank = teamAvgRank(oppTeam);
+      // UW = won and ranks differ. UL = lost and ranks differ.
+      // W/L = ranks are equal (or unknown).
+      let upsetLabel = iWon ? 'W' : 'L';
+      let upsetColor = iWon ? 'var(--green)' : 'var(--danger)';
+      if (iWon && myAvgRank !== null && oppAvgRank !== null && (myAvgRank > oppAvgRank)) {
+        
+          upsetLabel = 'UW'; upsetColor = 'var(--warn)';
+      } else if (!iWon && myAvgRank !== null && oppAvgRank !== null && (myAvgRank < oppAvgRank)) {
+          upsetLabel = 'UL'; upsetColor = 'var(--danger)';
+       }
+      
+      gameLog.push({ round: round.roundNum, myTeam, oppTeam, myScore, oppScore, iWon, myAvgRank, oppAvgRank, upsetLabel, upsetColor, myRankDisplay: teamRankDisplay(myTeam), oppRankDisplay: teamRankDisplay(oppTeam) });
+    }
+  }
+
   // Summary bar
   let html = `<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;
       background:rgba(255,255,255,0.04);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.07);">
@@ -2579,6 +3213,61 @@ function renderPlayerReport() {
     <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:${diffColor};">${g === 0 ? '—' : diffStr}</div><div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Pt Diff</div></div>
     <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:var(--muted);">${me.byes||0}</div><div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Byes</div></div>
   </div>`;
+
+  // Per-game log table
+  if (gameLog.length) {
+    const isDoubles = gameLog.some(g2 => g2.myTeam.length > 1 || g2.oppTeam.length > 1);
+    // columns: Rnd | Partner (doubles only) | Opponents | Score | Result
+    const glCols = isDoubles
+      ? 'grid-template-columns:36px 1fr 1fr 64px 44px;'
+      : 'grid-template-columns:36px 1fr 64px 44px;';
+    const rowStyle2 = 'padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:0.78rem;display:grid;gap:6px;align-items:start;';
+    const hdrStyle2 = 'padding:4px 8px;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);display:grid;gap:6px;';
+    html += `<div style="font-family:var(--font-display);font-size:0.75rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--accent,#7ab4f5);margin-bottom:6px;">📋 Game Log</div>
+    <div class="table-wrap" style="margin-bottom:16px;">
+      <div style="${hdrStyle2}${glCols}">
+        <span>Rnd</span>
+        ${isDoubles ? `<span>Partner</span>` : ''}
+        <span>Opponents</span>
+        <span style="text-align:center;">Score</span>
+        <span style="text-align:center;" title="UW=Upset Win (ranks differ, you won), UL=Upset Loss (ranks differ, you lost), W/L=even rank">Result</span>
+      </div>`;
+    for (const g2 of gameLog) {
+      // Partner(s) = teammates excluding me
+      const partners = g2.myTeam.filter(id => id !== pid);
+      const partnerHtml = partners.length
+        ? partners.map(id => {
+            const rl = rankLabel[id] ? `<span style="font-size:0.62rem;color:var(--muted);"> ${rankLabel[id]}</span>` : '';
+            return `<span>${esc(pname(id))}${rl}</span>`;
+          }).join('<br>')
+        : `<span style="color:var(--muted);">—</span>`;
+
+      // Opponents with rank labels
+      const oppHtml = g2.oppTeam.map(id => {
+        const rl = rankLabel[id] ? `<span style="font-size:0.62rem;color:var(--muted);"> ${rankLabel[id]}</span>` : '';
+        return `<span>${esc(pname(id))}${rl}</span>`;
+      }).join('<br>');
+
+      // My rank display
+      const myRankStr = g2.myRankDisplay ? `<div style="font-size:0.62rem;color:var(--muted);">${g2.myRankDisplay}</div>` : '';
+
+      html += `<div style="${rowStyle2}${glCols}">
+        <span style="color:var(--muted);padding-top:1px;">${g2.round}</span>
+        ${isDoubles ? `<div>${partnerHtml}${myRankStr}</div>` : ''}
+        <div>${oppHtml}${g2.oppRankDisplay ? `<div style="font-size:0.62rem;color:var(--muted);">${g2.oppRankDisplay}</div>` : ''}</div>
+        <span style="text-align:center;font-variant-numeric:tabular-nums;padding-top:1px;">${g2.myScore}–${g2.oppScore}</span>
+        <span style="text-align:center;font-weight:700;color:${g2.upsetColor};padding-top:1px;" title="${g2.upsetLabel === 'UW' ? 'Upset Win: ranks differ, you won' : g2.upsetLabel === 'UL' ? 'Upset Loss: ranks differ, you lost' : 'Even rank matchup'}">${g2.upsetLabel}</span>
+      </div>`;
+    }
+    const uwCount = gameLog.filter(g2 => g2.upsetLabel === 'UW').length;
+    const ulCount = gameLog.filter(g2 => g2.upsetLabel === 'UL').length;
+    html += `<div style="padding:6px 8px;font-size:0.72rem;color:var(--muted);">
+      <span style="color:var(--warn);font-weight:600;">${uwCount} UW</span> &nbsp;·&nbsp;
+      <span style="color:var(--danger);font-weight:600;">${ulCount} UL</span>
+      &nbsp;·&nbsp; UW/UL = game vs differently-ranked team &nbsp;·&nbsp; W/L = even rank
+    </div>`;
+    html += '</div>';
+  }
 
   const rowStyle = 'padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:0.8rem;display:grid;gap:6px;align-items:center;';
   const hdrStyle = 'padding:4px 8px;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);display:grid;gap:6px;';
@@ -2860,10 +3549,12 @@ function _buildPlayersForTourn() {
     }));
 }
 
-// Names of active (non-sitout, non-removed) players
+// Names of active (non-sitout, non-removed) players, sorted by the selected ranking mode
+// so tournament seeding matches "Pairing Based On" setting (current standings or initial rank)
 function _presentPlayerNames() {
   return state.players
     .filter(p => !p.removed && !p.sitOut && p.name.trim())
+    .sort((a, b) => sortSkill(b.id) - sortSkill(a.id))
     .map(p => p.name);
 }
 
@@ -2972,6 +3663,7 @@ function startTournament() {
   updateGenerateBtn();
   renderAllRounds();
   renderStandings();
+  renderPlayers();
   renderTournamentCard();
   maybeNotifyCourtAssignment(newRound);
   netBroadcast();
@@ -3026,10 +3718,12 @@ function advanceTournamentRound() {
     updateRoundSelector();
     renderAllRounds();
     renderStandings();
+    renderPlayers();
     maybeNotifyCourtAssignment(newRound);
   } else {
     recalcWinLoss();
     renderStandings();
+    renderPlayers();
   }
 
   renderTournamentCard();
@@ -3373,6 +4067,40 @@ if (_urlCode) {
   startHost();
 }
 
+// Apply DISABLE_HOST / JOIN_ONLY UI constraints after the peer is initialised
+if (DISABLE_HOST || JOIN_ONLY) {
+  // Hide share buttons — this instance cannot generate a joinable session
+  const copyBtn = document.getElementById('copy-url-btn');
+  const qrBtn   = document.getElementById('qr-url-btn');
+  if (copyBtn) copyBtn.style.display = 'none';
+  if (qrBtn)   qrBtn.style.display   = 'none';
+
+  // Show a persistent notice in the session card so the operator knows the mode
+  const sessionCard = document.getElementById('session-card');
+  if (sessionCard) {
+    const notice = document.createElement('div');
+    notice.style.cssText = 'margin-top:8px;padding:7px 12px;background:rgba(224,166,60,0.12);border:1px solid rgba(224,166,60,0.35);border-radius:var(--radius);color:var(--warn);font-size:0.78rem;';
+    notice.textContent = JOIN_ONLY
+      ? '⚠ Join-only mode — this app can only join sessions hosted elsewhere.'
+      : '⚠ Hosting disabled — this app cannot host sessions. Use the Join field to connect to another session.';
+    // Insert after the first child of the details content
+    const firstChild = sessionCard.querySelector('div');
+    if (firstChild) firstChild.appendChild(notice);
+  }
+}
+
+if (JOIN_ONLY) {
+  // Hide all management sections — players, settings, weights, rounds, standings
+  // are only useful once the user joins a session.  They will reappear via
+  // applyLockUI() once the role is established.
+  const hideIds = ['settings-card', 'players-card', 'weights-card', 'rounds-card',
+                    'standings-card', 'rank-trend-card', 'report-card', 'tournament-card'];
+  for (const id of hideIds) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+}
+
 // Close QR modal on Escape
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('qr-modal').style.display !== 'none') closeQR();
@@ -3501,6 +4229,26 @@ function maybeNotifyCourtAssignment(round) {
     });
   }
 }
+
+function openAboutModal() {
+  const modal = document.getElementById('about-modal');
+  const iframe = document.getElementById('about-iframe');
+  if (!iframe.src || iframe.src === window.location.href) {
+    iframe.src = 'courtPairMarketing.html';
+  }
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAboutModal() {
+  document.getElementById('about-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// Close on backdrop click
+document.getElementById('about-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeAboutModal();
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // PWA — Inline Manifest (data URI so no external manifest.json needed)
