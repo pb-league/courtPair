@@ -2554,7 +2554,9 @@ function generateRound() {
   // ── Validate pin feasibility before proceeding ──────────────────
   {
     const eligibleSet = new Set(active);
-    const ps = _calcPinStats(eligibleSet, numCourts, isPartial && partial ? partial.availableCourtIndices : null);
+    // Cap to visible courts so hidden courts (not enough players to fill them) don't trigger a false warning
+    const visibleCourts = isPartial ? numCourts : Math.min(numCourts, _visiblePinCourts || numCourts);
+    const ps = _calcPinStats(eligibleSet, visibleCourts, isPartial && partial ? partial.availableCourtIndices : null);
     if (!ps.enough) {
       const short = ps.freePlayersNeeded - ps.freeEligible;
       alert(`Cannot generate: not enough free players to fill all pre-assigned courts.\n\nNeed ${ps.freePlayersNeeded} unassigned player${ps.freePlayersNeeded !== 1 ? 's' : ''}, have ${ps.freeEligible}.\n\nRemove ${short} pin${short !== 1 ? 's' : ''} from the pre-assignment panel, or add more players.`);
