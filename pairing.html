@@ -297,12 +297,6 @@
         maxlength="60" oninput="onGroupNameChange(this.value)">
     </div>
     <div class="topbar-right">
-      <button class="btn btn-secondary" onclick="exportData()" data-tooltip="Save all players, scores, and settings to a .json file on your device. Use this to back up your session or transfer it to another device.">⬇ Export</button>
-      <label class="btn btn-secondary" style="cursor:pointer;" data-tooltip="Load a previously exported .json file to restore players, scores, and settings. You can choose to import everything or roster &amp; settings only.">
-        ⬆ Import
-        <input type="file" accept=".json" id="import-file" style="display:none" onchange="importPickMode(event)">
-      </label>
-      <button class="btn btn-danger" onclick="confirmNewSession()" title="Clear all data and start fresh">🗑 New Session</button>
       <button class="btn btn-secondary" onclick="openAboutModal()">ℹ About</button>
     </div>
   </div>
@@ -372,6 +366,21 @@
             onkeydown="if(event.key==='Enter')doJoin()">
           <button class="btn btn-secondary" onclick="doJoin()">Go</button>
           <span id="join-status" style="font-size:0.7rem;"></span>
+        </div>
+      </div>
+
+      <div class="session-divider-h"></div>
+
+      <!-- Row 4: Data management -->
+      <div class="session-row">
+        <span class="form-label" style="margin:0;white-space:nowrap;">Data:</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="exportData()" data-tooltip="Save all players, scores, and settings to a .json file on your device. Use this to back up your session or transfer it to another device.">⬇ Export</button>
+          <label class="btn btn-secondary" style="cursor:pointer;" data-tooltip="Load a previously exported .json file to restore players, scores, and settings. You can choose to import everything or roster &amp; settings only.">
+            ⬆ Import
+            <input type="file" accept=".json" id="import-file" style="display:none" onchange="importPickMode(event)">
+          </label>
+          <button class="btn btn-danger" onclick="confirmNewSession()" data-tooltip="Wipes all rounds, scores, and players. Cannot be undone.">🗑 New Session</button>
         </div>
       </div>
 
@@ -640,6 +649,7 @@ let _myPlayerId = localStorage.getItem('pb_myPlayerId') || '';
 // NETWORKING — PeerJS
 // ═══════════════════════════════════════════════════════════════════
 let _peer = null, _conns = [], _hostConn = null;
+let _visiblePinCourts = 0; // tracks how many pin court rows are shown (set by renderCourtPinInputs)
 let _isHost = false, _sessionCode = '';
 let _nameDebounceT = null;
 
@@ -1736,33 +1746,66 @@ function renderCourtPinInputs() {
   // Build a set of already-pinned IDs so we can warn duplicates
   const allPinned = new Set(pins.flatMap(row => (row || []).filter(Boolean)));
 
+  // Only show as many courts as eligible players can fill
+  const maxVisibleCourts = Math.min(n, Math.floor(eligible.length / slots));
+  _visiblePinCourts = maxVisibleCourts; // expose for warning calculation
+
+  function makeSel(courtIdx, slotIdx, curId, courtBusy) {
+    const dupWarn = curId && [...pins].some((row, ri) =>
+      ri !== courtIdx && (row || []).includes(curId)) ? 'outline:2px solid var(--danger);' : '';
+    let opts = `<option value="">— open —</option>`;
+    for (const p of eligible) {
+      const alreadyPinned = allPinned.has(p.id) && p.id !== curId;
+      opts += `<option value="${p.id}"${p.id === curId ? ' selected' : ''}${alreadyPinned ? ' style="color:var(--muted)"' : ''}>${esc(p.name)}</option>`;
+    }
+    const attrs = canEdit && !courtBusy ? `onchange="onCourtPinChange(${courtIdx},${slotIdx},this.value)"` : 'disabled';
+    return `<select class="player-slot-sel"${dupWarn ? ` style="${dupWarn}"` : ''} ${attrs}>${opts}</select>`;
+  }
+
   let html = '';
   for (let i = 0; i < n; i++) {
     const courtPins = pins[i] || [];
     const label = courtLabel(i + 1);
     const courtBusy = isPartial && busyCourtNums.has(i + 1);
-    const rowStyle = courtBusy ? 'opacity:0.4;pointer-events:none;' : '';
-    const busyNote = courtBusy ? `<span style="font-size:0.68rem;color:var(--muted);font-style:italic;margin-left:4px;">in use</span>` : '';
-    html += `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);${rowStyle}">
-      <span style="font-size:0.72rem;color:var(--muted);min-width:68px;white-space:nowrap;">${esc(label)}${busyNote}</span>`;
+    const busyNote = courtBusy ? ` <span style="font-size:0.65rem;color:var(--muted);font-style:italic;">in use</span>` : '';
 
-    for (let s = 0; s < slots; s++) {
-      const curId = courtBusy ? '' : (courtPins[s] || '');
-      const dupWarn = curId && [...pins].some((row, ri) =>
-        ri !== i && (row || []).includes(curId)) ? ' style="outline:2px solid var(--danger);"' : '';
-      let opts = `<option value="">— open —</option>`;
-      for (const p of eligible) {
-        const alreadyPinned = allPinned.has(p.id) && p.id !== curId;
-        opts += `<option value="${p.id}"${p.id === curId ? ' selected' : ''}${alreadyPinned ? ' style="color:var(--muted)"' : ''}>${esc(p.name)}</option>`;
-      }
-      const teamLabel = slots === 4
-        ? `<span style="font-size:0.62rem;color:var(--muted);margin-right:1px;">${s < 2 ? 'T1' : 'T2'}</span>`
-        : '';
-      html += `<div style="display:flex;align-items:center;gap:2px;">${teamLabel}<select class="form-control"${dupWarn}
-        style="width:120px;padding:2px 5px;font-size:0.78rem;"
-        ${canEdit && !courtBusy ? `onchange="onCourtPinChange(${i},${s},this.value)"` : 'disabled'}>${opts}</select></div>`;
+    // Hide courts that can't be filled with available players
+    const courtVisible = i < maxVisibleCourts || courtBusy || (courtPins || []).some(Boolean);
+    if (!courtVisible) continue;
+
+    const opacity = courtBusy ? 'opacity:0.4;pointer-events:none;' : '';
+
+    if (slots === 4) {
+      // Doubles: scorecard-style layout — team1 left, VS center, team2 right
+      const t1sels = [0,1].map(s => makeSel(i, s, courtBusy ? '' : (courtPins[s]||''), courtBusy)).join('');
+      const t2sels = [2,3].map(s => makeSel(i, s, courtBusy ? '' : (courtPins[s]||''), courtBusy)).join('');
+      html += `<div class="court-card" style="margin-bottom:6px;${opacity}">
+        <div class="court-header">
+          <span class="court-label">${esc(label)}${busyNote}</span>
+        </div>
+        <div class="matchup">
+          <div class="team-block">
+            <div class="team-players" style="font-size:0.82rem;">${t1sels}</div>
+          </div>
+          <div style="font-family:var(--font-display);font-weight:800;font-size:0.9rem;color:var(--muted);text-align:center;">VS</div>
+          <div class="team-block right">
+            <div class="team-players" style="font-size:0.82rem;">${t2sels}</div>
+          </div>
+        </div>
+      </div>`;
+    } else {
+      // Singles: just two selects side by side
+      const s0 = makeSel(i, 0, courtBusy ? '' : (courtPins[0]||''), courtBusy);
+      const s1 = makeSel(i, 1, courtBusy ? '' : (courtPins[1]||''), courtBusy);
+      html += `<div class="court-card" style="margin-bottom:6px;${opacity}">
+        <div class="court-header"><span class="court-label">${esc(label)}${busyNote}</span></div>
+        <div class="matchup">
+          <div class="team-block"><div class="team-players" style="font-size:0.82rem;">${s0}</div></div>
+          <div style="font-family:var(--font-display);font-weight:800;font-size:0.9rem;color:var(--muted);text-align:center;">VS</div>
+          <div class="team-block right"><div class="team-players" style="font-size:0.82rem;">${s1}</div></div>
+        </div>
+      </div>`;
     }
-    html += `</div>`;
   }
   wrap.innerHTML = html || '<div style="font-size:0.78rem;color:var(--muted);">Add players first.</div>';
 }
@@ -2726,7 +2769,7 @@ function _previewRoundCounts() {
   }
 
   if (eligible.length < pp) return null;
-  const maxCourts   = isPartial ? partial.numCourts : state.settings.numCourts;
+  const maxCourts   = isPartial ? partial.numCourts : Math.min(state.settings.numCourts, _visiblePinCourts || state.settings.numCourts);
   const eligibleIds = new Set(eligible.map(p => p.id));
   const ps          = _calcPinStats(eligibleIds, maxCourts, isPartial ? partial.availableCourtIndices : null);
 
@@ -5088,8 +5131,9 @@ if ('serviceWorker' in navigator) {
   // Derive base URL (folder containing these files)
   const _base = window.location.href.replace(/\/[^/]*(\?.*)?$/, '/');
 
+  const _appVersion = document.querySelector('meta[name="app-version"]')?.content || 'v1';
   const swCode = `
-const CACHE_NAME = 'courtpair-v1';
+const CACHE_NAME = 'courtpair-${_appVersion}';
 const BASE       = '${_base}';
 const APP_FILES  = [
   BASE + 'index.html',
