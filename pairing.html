@@ -649,7 +649,21 @@ let _myPlayerId = localStorage.getItem('pb_myPlayerId') || '';
 // NETWORKING — PeerJS
 // ═══════════════════════════════════════════════════════════════════
 let _peer = null, _conns = [], _hostConn = null;
-let _visiblePinCourts = 0; // tracks how many pin court rows are shown (set by renderCourtPinInputs)
+// Compute how many pin-court rows are visible given current eligible players
+function _calcVisiblePinCourts() {
+  const n     = state.settings.numCourts || 1;
+  const slots = ppc();
+  const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
+  let busyIds = new Set();
+  if (isPartial) {
+    for (const round of state.rounds)
+      for (const c of round.courts)
+        if (c.score1 === null || c.score2 === null)
+          for (const id of [...c.team1, ...c.team2].filter(Boolean)) busyIds.add(id);
+  }
+  const eligible = state.players.filter(p => p.name.trim() && !p.removed && !p.sitOut && !busyIds.has(p.id));
+  return Math.min(n, Math.floor(eligible.length / slots));
+}
 let _isHost = false, _sessionCode = '';
 let _nameDebounceT = null;
 
@@ -1748,7 +1762,7 @@ function renderCourtPinInputs() {
 
   // Only show as many courts as eligible players can fill
   const maxVisibleCourts = Math.min(n, Math.floor(eligible.length / slots));
-  _visiblePinCourts = maxVisibleCourts; // expose for warning calculation
+  // (visible court count computed fresh by _calcVisiblePinCourts() when needed)
 
   function makeSel(courtIdx, slotIdx, curId, courtBusy) {
     const dupWarn = curId && [...pins].some((row, ri) =>
@@ -2555,7 +2569,7 @@ function generateRound() {
   {
     const eligibleSet = new Set(active);
     // Cap to visible courts so hidden courts (not enough players to fill them) don't trigger a false warning
-    const visibleCourts = isPartial ? numCourts : Math.min(numCourts, _visiblePinCourts || numCourts);
+    const visibleCourts = Math.min(numCourts, _calcVisiblePinCourts());
     const ps = _calcPinStats(eligibleSet, visibleCourts, isPartial && partial ? partial.availableCourtIndices : null);
     if (!ps.enough) {
       const short = ps.freePlayersNeeded - ps.freeEligible;
@@ -2771,7 +2785,7 @@ function _previewRoundCounts() {
   }
 
   if (eligible.length < pp) return null;
-  const maxCourts   = isPartial ? partial.numCourts : Math.min(state.settings.numCourts, _visiblePinCourts || state.settings.numCourts);
+  const maxCourts   = Math.min(isPartial ? partial.numCourts : state.settings.numCourts, _calcVisiblePinCourts());
   const eligibleIds = new Set(eligible.map(p => p.id));
   const ps          = _calcPinStats(eligibleIds, maxCourts, isPartial ? partial.availableCourtIndices : null);
 
