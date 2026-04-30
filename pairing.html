@@ -44,6 +44,8 @@
       line-height: 1.45;
       font-family: system-ui, sans-serif;
       font-weight: 400;
+      text-transform: none;
+      letter-spacing: normal;
       padding: 7px 10px;
       border-radius: 7px;
       border: 1px solid rgba(255,255,255,0.1);
@@ -60,6 +62,12 @@
     [data-tooltip]:hover::after,
     [data-tooltip]:focus-visible::after {
       opacity: 1;
+    }
+    /* Topbar and table-header tooltips open downward so they are not clipped */
+    .topbar [data-tooltip]::after,
+    thead [data-tooltip]::after {
+      bottom: auto;
+      top: calc(100% + 8px);
     }
     /* ── Court scorecard: constrain player name selects ─────────── */
     .matchup {
@@ -136,6 +144,11 @@
     margin-right: 6px;
     flex-shrink: 0;
   }
+  /* ── Next-match inner round-box: suppress native marker & CSS ::before arrow ── */
+  .nm-summary::-webkit-details-marker { display: none; }
+  .nm-summary { list-style: none; }
+  .nm-summary::before { display: none !important; }
+
   /* ── Standings clickable name ─────────────────────────────── */
   .standings-name-link {
     color: inherit;
@@ -277,18 +290,19 @@
   </div>
 </div>
 
-<div class="topbar" style="width:100%;box-sizing:border-box;overflow-x:hidden;">
+<div class="topbar" style="width:100%;box-sizing:border-box;overflow:visible;">
   <div class="topbar-inner">
     <div class="topbar-brand">
       <input type="text" id="group-name" class="group-name-input" placeholder="Group Name"
         maxlength="60" oninput="onGroupNameChange(this.value)">
     </div>
     <div class="topbar-right">
-      <button class="btn btn-secondary" onclick="exportData()">⬇ Export</button>
-      <label class="btn btn-secondary" style="cursor:pointer;">
+      <button class="btn btn-secondary" onclick="exportData()" data-tooltip="Save all players, scores, and settings to a .json file on your device. Use this to back up your session or transfer it to another device.">⬇ Export</button>
+      <label class="btn btn-secondary" style="cursor:pointer;" data-tooltip="Load a previously exported .json file to restore players, scores, and settings. You can choose to import everything or roster &amp; settings only.">
         ⬆ Import
         <input type="file" accept=".json" id="import-file" style="display:none" onchange="importPickMode(event)">
       </label>
+      <button class="btn btn-danger" onclick="confirmNewSession()" title="Clear all data and start fresh">🗑 New Session</button>
       <button class="btn btn-secondary" onclick="openAboutModal()">ℹ About</button>
     </div>
   </div>
@@ -412,11 +426,11 @@
           <thead>
             <tr>
               <th>Name</th>
-              <th style="width:36px;text-align:center;" id="gender-th">M/F</th>
+              <th style="width:36px;text-align:center;" id="gender-th" data-tooltip="Gender is only used in Mixed Doubles mode to pair mixed-gender teams. Set to E if the player can play as either gender.">M/F</th>
               <th style="width:52px;text-align:center;" title="Used for team equalization or grouping like-ranked players when 'Ranking based on' is set to 'Initial ranking'. Lower number = better.">Rank</th>
               <th style="width:32px;text-align:center;" title="Players assigned courts since this player last played">Wait</th>
               <th style="width:36px;text-align:center;" title="Exclude from future rounds">Out</th>
-              <th style="width:30px;text-align:center;" id="role-th" title="Role: H=Host, A=Admin, S=Scorer, P=Player">Role</th>
+              <th style="width:30px;text-align:center;" id="role-th" data-tooltip="H = Host: full control — manage players, settings, rounds, scores, and delete anything. A = Admin: same as Host except cannot delete. S = Scorer: can enter/edit scores and generate rounds, but cannot change settings or add players. P = Player: view-only — can only toggle their own sit-out status.">Role</th>
               <th style="width:28px;"></th>
             </tr>
           </thead>
@@ -496,18 +510,41 @@
             <button class="btn btn-secondary" id="print-round-btn" onclick="printRound()" disabled>🖨 Print Pairings</button>
           </div>
           <label style="display:flex;align-items:center;gap:5px;font-size:0.72rem;color:var(--muted);cursor:pointer;user-select:none;">
-            <input type="checkbox" id="partial-gen" style="accent-color:var(--green);cursor:pointer;" onchange="updateGenerateBtn()">
+            <input type="checkbox" id="partial-gen" style="accent-color:var(--green);cursor:pointer;" onchange="renderCourtPinInputs();updateGenerateBtn()">
             Available courts and players only
           </label>
         </div>
       </div>
+
+      <!-- Court pre-assignments panel -->
+      <div id="court-pins-section" style="margin-top:10px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius);">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-size:0.72rem;color:var(--muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;">Pre-assign Players</span>
+          <span style="font-size:0.72rem;color:var(--muted);">— Generate fills remaining open slots</span>
+          <button class="btn btn-secondary" onclick="clearAllPins()" style="font-size:0.68rem;padding:2px 8px;margin-left:auto;">✕ Clear All</button>
+        </div>
+        <div id="court-pins-inputs"></div>
+        <div id="court-pins-warning" style="display:none;margin-top:8px;padding:6px 10px;background:rgba(224,90,90,0.12);border:1px solid rgba(224,90,90,0.35);border-radius:var(--radius);color:var(--danger);font-size:0.76rem;"></div>
+      </div>
+
       <div id="rounds-list">
         <div class="empty-state">Generate a round to begin</div>
       </div>
     </div>
   </details>
 
-  <!-- ── Standings ─────────────────────────────────────────────── -->
+  <!-- ── My Next Match ──────────────────────────────────────────── -->
+  <details class="card" id="next-match-card" style="display:none;">
+    <summary class="card-title" style="display:flex;align-items:center;gap:8px;">
+      <span>🎯 My Next Match</span>
+      <span id="next-match-summary" style="font-family:var(--font-body);font-size:0.78rem;font-weight:400;color:var(--muted);letter-spacing:0;text-transform:none;margin-left:2px;"></span>
+    </summary>
+    <div id="next-match-inner">
+      <div class="empty-state">No upcoming matches found</div>
+    </div>
+  </details>
+
+    <!-- ── Standings ─────────────────────────────────────────────── -->
   <details class="card" id="standings-card">
     <summary class="card-title">🏆 Standings</summary>
     <div>
@@ -590,7 +627,7 @@ const JOIN_ONLY = false;
 // ═══════════════════════════════════════════════════════════════════
 const state = {
   settings: { numCourts: 2, mode: 'doubles', rankingMode: 'winPct', groupName: '',
-              pairingMode: 'normal', courtNames: [] },
+              pairingMode: 'normal', courtNames: [], courtPins: [] },
   players: [],
   rounds: [],
   tournament: null,   // null = not in tournament mode; object when active
@@ -680,6 +717,13 @@ function startHost() {
     updateMyPlayerDisplay();
     document.getElementById('copy-url-btn').disabled = false;
     document.getElementById('qr-url-btn').disabled = false;
+    // Re-render now that host status is confirmed — delete buttons depend on canDelete()
+    // which requires _isHost=true, but _isHost is set asynchronously after PeerJS connects.
+    if (state.rounds.length) renderAllRounds();
+    renderPlayers();
+    renderCourtNameInputs();
+    renderCourtPinInputs();
+    updateGenerateBtn();
   });
 
   _peer.on('connection', conn => {
@@ -855,8 +899,86 @@ function netSnapshot() {
   return { ...state, _nextId, playerRoles: state.playerRoles || {} };
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// LOCAL STORAGE PERSISTENCE
+// ═══════════════════════════════════════════════════════════════════
+const LS_KEY = 'pb_session_state';
+const LS_NEXTID_KEY = 'pb_nextId';
+
+let _lsSaveTimer = null;
+function saveToLocalStorage() {
+  clearTimeout(_lsSaveTimer);
+  _lsSaveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      localStorage.setItem(LS_NEXTID_KEY, String(_nextId));
+    } catch(e) {
+      // Quota exceeded or private mode — fail silently
+    }
+  }, 400);
+}
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    const nid = localStorage.getItem(LS_NEXTID_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || !Array.isArray(saved.players)) return false;
+    // Rehydrate state
+    state.players    = saved.players    || [];
+    state.rounds     = saved.rounds     || [];
+    state.tournament = saved.tournament ?? null;
+    state.playerRoles = saved.playerRoles || {};
+    if (saved.settings) {
+      state.settings = { ...state.settings, ...saved.settings };
+    }
+    if (nid) _nextId = parseInt(nid) || _nextId;
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+function confirmNewSession() {
+  if (!confirm('Start a new session? All current data (players, rounds, scores) will be cleared. Export first if you want to keep it.')) return;
+  clearTimeout(_lsSaveTimer);
+  localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(LS_NEXTID_KEY);
+  // Reset state
+  state.players     = [];
+  state.rounds      = [];
+  state.tournament  = null;
+  state.playerRoles = {};
+  state.settings    = { numCourts: 2, mode: 'doubles', rankingMode: 'winPct',
+                        groupName: '', pairingMode: 'normal', courtNames: [], courtPins: [] };
+  _nextId = 1;
+  // Reset UI controls
+  document.getElementById('num-courts').value    = 2;
+  document.getElementById('game-mode').value     = 'doubles';
+  document.getElementById('ranking-mode').value  = 'winPct';
+  document.getElementById('group-name').value    = '';
+  const pmSel = document.getElementById('pairing-mode');
+  if (pmSel) pmSel.value = 'normal';
+  document.getElementById('print-round-btn').disabled = true;
+  recalcWinLoss();
+  renderPlayers();
+  renderAllRounds();
+  renderStandings();
+  updateRoundSelector();
+  updateSettingsHint();
+  updateWeightsHint();
+  updateRoundsHint();
+  updateStandingsGroupLabel();
+  updateGenerateBtn();
+  renderCourtNameInputs();
+  renderCourtPinInputs();
+  updatePairingModeUI();
+}
+
 // Call after every local state change to push to peers
 function netBroadcast() {
+  saveToLocalStorage();
   const msg = { type: 'state-sync', payload: netSnapshot() };
   if (_isHost) {
     broadcastAll(msg);
@@ -913,6 +1035,10 @@ function applyNetState(incoming, fromHost) {
     document.getElementById('game-mode').value    = s.mode        || 'doubles';
     document.getElementById('ranking-mode').value = s.rankingMode || 'winPct';
     document.getElementById('group-name').value   = s.groupName   || '';
+    if (s.courtNames !== undefined) state.settings.courtNames = s.courtNames || [];
+    if (s.courtPins  !== undefined) state.settings.courtPins  = s.courtPins  || [];
+    renderCourtNameInputs();
+    renderCourtPinInputs();
     // Sync pairing mode
     const pmSel = document.getElementById('pairing-mode');
     if (pmSel) pmSel.value = s.pairingMode || 'normal';
@@ -1134,7 +1260,7 @@ function applyLockUI() {
   // ── JOIN_ONLY: reveal management sections once the user has joined a session ─
   if (JOIN_ONLY && _hostConn && _hostConn.open) {
     const showIds = ['settings-card', 'players-card', 'weights-card', 'rounds-card',
-                      'standings-card', 'rank-trend-card', 'report-card'];
+                      'next-match-card', 'standings-card', 'rank-trend-card', 'report-card'];
     for (const id of showIds) {
       const el = document.getElementById(id);
       if (el) el.style.display = '';
@@ -1517,6 +1643,7 @@ function onSettingsChange() {
     state.settings.mode === 'mixed-doubles' ? 'var(--green)' : '';
   checkDoublesOddWarning();
   renderCourtNameInputs();
+  renderCourtPinInputs();
   updateSettingsHint();
   updateGenerateBtn();
   updatePairingModeUI();
@@ -1563,6 +1690,106 @@ function onCourtNameChange(idx, value) {
     state.settings.courtNames.pop();
   }
   renderCurrentRound();
+  renderCourtPinInputs(); // court labels may have changed
+  netBroadcast();
+}
+
+// ── Court Pre-assignment (pins) ──────────────────────────────────
+
+function renderCourtPinInputs() {
+  const wrap = document.getElementById('court-pins-inputs');
+  if (!wrap) return;
+  const n        = state.settings.numCourts || 1;
+  const slots    = ppc();          // 2 (singles) or 4 (doubles)
+  const pins     = state.settings.courtPins || [];
+  const canEdit  = roleAtLeast('admin');
+
+  // When "available courts and players only" is checked and rounds exist,
+  // restrict the dropdown to only players who are actually eligible (not busy on an unscored court),
+  // and disable the entire row for any court that is currently in use.
+  const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
+  let busyIds = new Set();
+  let busyCourtNums = new Set();   // court numbers (1-based) with an unfinished game
+  if (isPartial) {
+    for (const round of state.rounds) {
+      for (const c of round.courts) {
+        if (c.score1 === null || c.score2 === null) {
+          busyCourtNums.add(c.courtNum);
+          for (const id of [...c.team1, ...c.team2].filter(Boolean)) busyIds.add(id);
+        }
+      }
+    }
+    // Auto-clear any existing pins on busy courts or for busy players
+    let pinsChanged = false;
+    for (let ci = 0; ci < (state.settings.courtPins || []).length; ci++) {
+      const row = state.settings.courtPins[ci] || [];
+      const courtIsBusy = busyCourtNums.has(ci + 1);
+      for (let s = 0; s < row.length; s++) {
+        if (row[s] && (courtIsBusy || busyIds.has(row[s]))) { row[s] = ''; pinsChanged = true; }
+      }
+    }
+    if (pinsChanged) updateGenerateBtn();
+  }
+
+  const eligible = state.players.filter(p => p.name.trim() && !p.removed && !p.sitOut && !busyIds.has(p.id));
+
+  // Build a set of already-pinned IDs so we can warn duplicates
+  const allPinned = new Set(pins.flatMap(row => (row || []).filter(Boolean)));
+
+  let html = '';
+  for (let i = 0; i < n; i++) {
+    const courtPins = pins[i] || [];
+    const label = courtLabel(i + 1);
+    const courtBusy = isPartial && busyCourtNums.has(i + 1);
+    const rowStyle = courtBusy ? 'opacity:0.4;pointer-events:none;' : '';
+    const busyNote = courtBusy ? `<span style="font-size:0.68rem;color:var(--muted);font-style:italic;margin-left:4px;">in use</span>` : '';
+    html += `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);${rowStyle}">
+      <span style="font-size:0.72rem;color:var(--muted);min-width:68px;white-space:nowrap;">${esc(label)}${busyNote}</span>`;
+
+    for (let s = 0; s < slots; s++) {
+      const curId = courtBusy ? '' : (courtPins[s] || '');
+      const dupWarn = curId && [...pins].some((row, ri) =>
+        ri !== i && (row || []).includes(curId)) ? ' style="outline:2px solid var(--danger);"' : '';
+      let opts = `<option value="">— open —</option>`;
+      for (const p of eligible) {
+        const alreadyPinned = allPinned.has(p.id) && p.id !== curId;
+        opts += `<option value="${p.id}"${p.id === curId ? ' selected' : ''}${alreadyPinned ? ' style="color:var(--muted)"' : ''}>${esc(p.name)}</option>`;
+      }
+      const teamLabel = slots === 4
+        ? `<span style="font-size:0.62rem;color:var(--muted);margin-right:1px;">${s < 2 ? 'T1' : 'T2'}</span>`
+        : '';
+      html += `<div style="display:flex;align-items:center;gap:2px;">${teamLabel}<select class="form-control"${dupWarn}
+        style="width:120px;padding:2px 5px;font-size:0.78rem;"
+        ${canEdit && !courtBusy ? `onchange="onCourtPinChange(${i},${s},this.value)"` : 'disabled'}>${opts}</select></div>`;
+    }
+    html += `</div>`;
+  }
+  wrap.innerHTML = html || '<div style="font-size:0.78rem;color:var(--muted);">Add players first.</div>';
+}
+
+function onCourtPinChange(courtIdx, slotIdx, playerId) {
+  if (!roleAtLeast('admin')) return;
+  if (!state.settings.courtPins) state.settings.courtPins = [];
+  while (state.settings.courtPins.length <= courtIdx) state.settings.courtPins.push([]);
+  // If same player is pinned elsewhere, clear that slot
+  if (playerId) {
+    state.settings.courtPins.forEach((row, ri) => {
+      if (ri !== courtIdx) {
+        const si = row.indexOf(playerId);
+        if (si !== -1) row[si] = '';
+      }
+    });
+  }
+  state.settings.courtPins[courtIdx][slotIdx] = playerId;
+  renderCourtPinInputs(); // refresh to show/clear duplicate warnings
+  updateGenerateBtn();
+  netBroadcast();
+}
+
+function clearAllPins() {
+  if (!roleAtLeast('admin')) return;
+  state.settings.courtPins = [];
+  renderCourtPinInputs();
   netBroadcast();
 }
 
@@ -1708,9 +1935,10 @@ function updateCourtDots() {
   for (let i = 1; i <= numCourts; i++) {
     const available = !hasRounds || !busyCourtNums.has(i);
     const color = available ? 'var(--green)' : 'rgba(122,155,181,0.2)';
-    const tip   = available ? `Court ${i} — available` : `Court ${i} — in progress`;
+    const lbl   = esc(courtLabel(i));
+    const tip   = available ? `${lbl} — available` : `${lbl} — in progress`;
     html += `<span style="display:flex;align-items:center;gap:3px;font-size:0.7rem;color:var(--muted);" title="${tip}">
-      <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${color};display:inline-block;"></span>Court ${i}
+      <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${color};display:inline-block;"></span>${lbl}
     </span>`;
   }
   wrap.innerHTML = html;
@@ -1756,6 +1984,12 @@ function removePlayer(id) {
   for (const round of state.rounds) {
     if (round.byes) round.byes = round.byes.filter(bid => bid !== id);
   }
+  // Purge from court pre-assignments
+  if (state.settings.courtPins) {
+    state.settings.courtPins = state.settings.courtPins.map(row =>
+      (row || []).map(pid => pid === id ? '' : pid)
+    );
+  }
   renderPlayers();
   renderStandings();
   updateGenerateBtn();
@@ -1792,6 +2026,7 @@ function onNameChange(id, val) {
   }
 
   p.name = trimmed;
+  updateEligibilityDots();
   updateGenerateBtn();
   renderStandings();
   clearTimeout(_nameDebounceT);
@@ -1928,6 +2163,7 @@ function renderPlayers() {
   }).join('');
   updateMyPlayerSelector();
   updateReportSelector();
+  renderCourtPinInputs();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2144,16 +2380,33 @@ function selectActive() {
   return chosen.slice(0, need).map(p => p.id);
 }
 
-function generateOptimal(active, numCourts) {
+function generateOptimal(active, numCourts, pinnedCourts) {
+  // pinnedCourts: array of already-built court objects (may have '' slots).
+  // We only randomly fill the courts NOT in pinnedCourts, then merge.
   const hist    = buildHistory();
   const weights = getWeights();
-  const iters   = Math.min(2000, Math.max(600, active.length * 150));
+
+  // How many courts still need fully free generation
+  const freeCourtsNeeded = numCourts - (pinnedCourts ? pinnedCourts.length : 0);
+
+  if (freeCourtsNeeded <= 0 && pinnedCourts && pinnedCourts.length) {
+    // All courts are pinned — nothing to optimise
+    return pinnedCourts;
+  }
+
+  const iters = Math.min(2000, Math.max(600, active.length * 150));
   let best = null, bestCost = Infinity;
+
   for (let i = 0; i < iters; i++) {
-    const courts = makeCourts(shuffle(active), numCourts);
-    if (!courts.length) continue;
-    const cost = calcCost(courts, hist, weights);
-    if (cost < bestCost) { bestCost = cost; best = courts; }
+    const freeCourts = freeCourtsNeeded > 0 ? makeCourts(shuffle(active), freeCourtsNeeded) : [];
+    if (freeCourtsNeeded > 0 && !freeCourts.length) continue;
+
+    // Combine pinned + free courts (pinned first so courtNum ordering is preserved)
+    const allCourts = pinnedCourts ? [...pinnedCourts, ...freeCourts] : freeCourts;
+    if (!allCourts.length) continue;
+
+    const cost = calcCost(allCourts, hist, weights);
+    if (cost < bestCost) { bestCost = cost; best = allCourts; }
   }
   return best;
 }
@@ -2169,7 +2422,7 @@ function getPartialEligible() {
   for (const round of state.rounds) {
     for (const c of round.courts) {
       const complete = c.score1 !== null && c.score2 !== null;
-      for (const id of [...c.team1, ...c.team2]) {
+      for (const id of [...c.team1, ...c.team2].filter(Boolean)) {
         if (!complete) busy.add(id);
         else           doneOnce.add(id);
       }
@@ -2179,33 +2432,46 @@ function getPartialEligible() {
 
   // Players freed from a completed court = finished at least one game AND not currently busy
   const freed = [...doneOnce].filter(id => !busy.has(id));
-  if (!freed.length) return null;
 
   // Also include players who had a bye in the most recent round
   const lastRound = state.rounds[state.rounds.length - 1];
   const lastRoundByes = new Set(lastRound?.byes || []);
 
-  // Eligible = freed from finished courts OR last-round bye, excluding busy/sitOut/removed
+  // Collect players explicitly pinned to a court (they're being manually assigned,
+  // so they should always count as eligible as long as they're not busy/sitOut/removed)
+  const pinnedPlayerIds = new Set();
+  for (const row of (state.settings.courtPins || [])) {
+    for (const id of (row || [])) {
+      if (id) pinnedPlayerIds.add(id);
+    }
+  }
+
+  // Eligible = freed from finished courts OR last-round bye OR explicitly pinned,
+  // excluding busy/sitOut/removed in all cases
   const eligibleIds = new Set(
     state.players
       .filter(p => {
         if (!p.name.trim() || p.removed || p.sitOut) return false;
         if (busy.has(p.id)) return false;
-        return freed.includes(p.id) || lastRoundByes.has(p.id);
+        return freed.includes(p.id) || lastRoundByes.has(p.id) || pinnedPlayerIds.has(p.id);
       })
       .map(p => p.id)
   );
 
+  // Need at least enough eligible players for one court
   if (eligibleIds.size < ppc()) return null;
 
   // Available courts = configured courts minus those with a live unfinished game
-  const availableCourts = Math.max(0,
-    state.settings.numCourts - busyCourtNums.size
-  );
+  // Build the explicit list of available court indices (1-based) so callers can
+  // match pins by real court number rather than assuming 0..numCourts-1.
+  const availableCourtIndices = [];
+  for (let i = 1; i <= state.settings.numCourts; i++) {
+    if (!busyCourtNums.has(i)) availableCourtIndices.push(i);
+  }
 
-  if (availableCourts === 0) return null;
+  if (availableCourtIndices.length === 0) return null;
 
-  return { eligibleIds, numCourts: availableCourts };
+  return { eligibleIds, numCourts: availableCourtIndices.length, availableCourtIndices };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2217,8 +2483,9 @@ function generateRound() {
   const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
   let active, numCourts;
 
+  let partial = null;
   if (isPartial) {
-    const partial = getPartialEligible();
+    partial = getPartialEligible();
     if (!partial) {
       alert('No completed courts (both scores entered) in the last round.');
       return;
@@ -2241,7 +2508,90 @@ function generateRound() {
     }
   }
 
-  const courts = generateOptimal(active, numCourts);
+  // ── Validate pin feasibility before proceeding ──────────────────
+  {
+    const eligibleSet = new Set(active);
+    const ps = _calcPinStats(eligibleSet, numCourts, isPartial && partial ? partial.availableCourtIndices : null);
+    if (!ps.enough) {
+      const short = ps.freePlayersNeeded - ps.freeEligible;
+      alert(`Cannot generate: not enough free players to fill all pre-assigned courts.\n\nNeed ${ps.freePlayersNeeded} unassigned player${ps.freePlayersNeeded !== 1 ? 's' : ''}, have ${ps.freeEligible}.\n\nRemove ${short} pin${short !== 1 ? 's' : ''} from the pre-assignment panel, or add more players.`);
+      return;
+    }
+  }
+
+  // ── Apply court pre-assignments (pins) ──────────────────────────
+  // Build locked courts from pins, remove pinned players from free pool.
+  const pins = state.settings.courtPins || [];
+  const n    = ppc();
+  const pinnedPlayerIds = new Set();
+  const pinnedCourts    = [];
+
+  // In partial mode iterate only the available court indices (e.g. [2] when court 1 is busy)
+  // so pins on court 2 are found even though numCourts == 1.
+  // In normal mode iterate courts 1..numCourts sequentially.
+  const partialIndices = isPartial && partial ? partial.availableCourtIndices : null;
+  const courtNums = partialIndices
+    ? partialIndices
+    : Array.from({ length: numCourts }, (_, k) => k + 1);
+
+  for (const courtNum of courtNums) {
+    const ci  = courtNum - 1;          // pins array is 0-based
+    const row = pins[ci] || [];
+    const filledSlots = row.filter(Boolean);
+    if (!filledSlots.length) continue; // no pins on this court — leave for optimizer
+
+    // Validate: pinned players must be in the active pool
+    const validSlots = row.map(id => (id && active.includes(id)) ? id : '');
+    const hasAnyValid = validSlots.some(Boolean);
+    if (!hasAnyValid) continue;
+
+    // Build a partial court; empty slots ('') will be filled by the optimizer pass
+    const team1 = n === 4 ? [validSlots[0]||'', validSlots[1]||''] : [validSlots[0]||''];
+    const team2 = n === 4 ? [validSlots[2]||'', validSlots[3]||''] : [validSlots[1]||''];
+
+    // If court is fully pinned (all slots filled), add as-is
+    const allFilled = [...team1, ...team2].every(s => s !== '');
+    if (allFilled) {
+      pinnedCourts.push({ courtNum, team1, team2, score1: null, score2: null });
+      validSlots.filter(Boolean).forEach(id => pinnedPlayerIds.add(id));
+    } else {
+      // Partially pinned: fill remaining slots from optimizer by treating open slots as wildcards
+      pinnedCourts.push({ courtNum, team1, team2, score1: null, score2: null, _partial: true });
+      validSlots.filter(Boolean).forEach(id => pinnedPlayerIds.add(id));
+    }
+  }
+
+  // Fill partial courts: for each court with '' slots, pick from free pool
+  const freePool = active.filter(id => !pinnedPlayerIds.has(id));
+  const shuffledFree = shuffle([...freePool]);
+  let freeIdx = 0;
+
+  for (const pc of pinnedCourts) {
+    if (!pc._partial) continue;
+    const allSlots = [...pc.team1, ...pc.team2];
+    const filled   = allSlots.map(s => s || (shuffledFree[freeIdx++] || ''));
+    // Re-split back into teams
+    if (n === 4) {
+      pc.team1 = [filled[0], filled[1]];
+      pc.team2 = [filled[2], filled[3]];
+    } else {
+      pc.team1 = [filled[0]];
+      pc.team2 = [filled[1]];
+    }
+    // Remove newly assigned players from further consideration
+    [...pc.team1, ...pc.team2].filter(Boolean).forEach(id => pinnedPlayerIds.add(id));
+    delete pc._partial;
+  }
+
+  // Remaining free players go to the optimizer
+  const remainingFree  = active.filter(id => !pinnedPlayerIds.has(id));
+  // Free courts = slots not taken by pinned courts, capped by how many the remaining pool can fill
+  const freeCourtsLeft = Math.min(
+    numCourts - pinnedCourts.length,
+    Math.floor(remainingFree.length / ppc())
+  );
+
+  const courts = generateOptimal(remainingFree, pinnedCourts.length + freeCourtsLeft, pinnedCourts);
   if (!courts || !courts.length) {
     alert('Could not fill any courts. Reduce court count or add more players.');
     return;
@@ -2269,6 +2619,11 @@ function generateRound() {
 
   const newRound = { roundNum: state.rounds.length + 1, courts, byes };
   state.rounds.push(newRound);
+
+  // Clear pre-assignments — players were just assigned to play
+  state.settings.courtPins = [];
+  renderCourtPinInputs();
+
   recalcWinLoss();
   updateRoundSelector();
   document.getElementById('print-round-btn').disabled = false;
@@ -2319,6 +2674,40 @@ function changeCourtNum(rIdx, cIdx, newNum) {
 }
 
 
+// Returns info about how pins interact with the eligible pool.
+// { pinnedCount, openPinSlots, freeEligible, freeCourts, freePlayersNeeded, enough }
+// availableCourtIndices: optional array of 1-based court numbers to check (partial mode).
+// When omitted, checks courts 1..numCourts sequentially (normal mode).
+function _calcPinStats(eligibleIds, numCourts, availableCourtIndices) {
+  const pp   = ppc();
+  const pins = state.settings.courtPins || [];
+  let pinnedCount   = 0; // valid pinned players (in eligible pool)
+  let openPinSlots  = 0; // empty slots on courts that have at least one pin
+  let pinnedCourts  = 0; // courts with ≥1 valid pin
+
+  // Iterate over the real court numbers to check, not just 0..numCourts-1
+  const courtNums = availableCourtIndices
+    ? availableCourtIndices
+    : Array.from({ length: numCourts }, (_, k) => k + 1);
+
+  for (const courtNum of courtNums) {
+    const ci  = courtNum - 1;          // pins array is 0-based
+    const row = pins[ci] || [];
+    const validPins = row.filter(id => id && eligibleIds.has(id));
+    if (!validPins.length) continue;
+    pinnedCourts++;
+    pinnedCount  += validPins.length;
+    openPinSlots += pp - validPins.length; // blank slots on this pinned court
+  }
+
+  const freeCourts          = numCourts - pinnedCourts;
+  const freePlayersNeeded   = freeCourts * pp + openPinSlots;
+  const freeEligible        = (eligibleIds.size || 0) - pinnedCount;
+  const enough              = freeEligible >= freePlayersNeeded;
+
+  return { pinnedCount, openPinSlots, freeEligible, freeCourts, freePlayersNeeded, enough };
+}
+
 // Mirrors the pool logic in generateRound() — uses the partial-eligible pool
 // when the "finished courts only" checkbox is checked and rounds exist.
 function _previewRoundCounts() {
@@ -2329,7 +2718,7 @@ function _previewRoundCounts() {
 
   if (isPartial) {
     partial = getPartialEligible();
-    if (!partial) return null;   // no freed players yet — nothing to preview
+    if (!partial) return null;
     eligible = state.players.filter(p =>
       p.name.trim() && !p.removed && !p.sitOut && partial.eligibleIds.has(p.id));
   } else {
@@ -2337,43 +2726,66 @@ function _previewRoundCounts() {
   }
 
   if (eligible.length < pp) return null;
-  const maxCourts = isPartial ? partial.numCourts : state.settings.numCourts;
-  const courts  = Math.min(maxCourts, Math.floor(eligible.length / pp));
-  const playing = courts * pp;
+  const maxCourts   = isPartial ? partial.numCourts : state.settings.numCourts;
+  const eligibleIds = new Set(eligible.map(p => p.id));
+  const ps          = _calcPinStats(eligibleIds, maxCourts, isPartial ? partial.availableCourtIndices : null);
+
+  // Total players playing = pinned + free assigned (may not fill all free courts)
+  const freeCourtsFilledByOptimizer = Math.min(ps.freeCourts, Math.floor(ps.freeEligible / pp));
+  const courts  = ps.pinnedCourts !== undefined
+    ? (maxCourts - ps.freeCourts) + freeCourtsFilledByOptimizer
+    : Math.min(maxCourts, Math.floor(eligible.length / pp));
+
+  // Re-derive simply: how many total players will play?
+  // pinned players + free players assigned to courts
+  const pinnedOnCourt = ps.pinnedCount + ps.openPinSlots - Math.max(0, ps.openPinSlots - ps.freeEligible);
+  const playing = ps.enough
+    ? courts * pp
+    : ps.pinnedCount + Math.min(ps.freeEligible, freeCourtsFilledByOptimizer * pp + ps.openPinSlots);
   const byes    = eligible.length - playing;
-  return { courts, playing, byes };
+  return { courts, playing, byes, pinStats: ps, eligible: eligible.length };
 }
 
 function updateGenerateBtn() {
   const btn = document.getElementById('generate-btn');
   if (!btn) return;
   updateCourtDots();
+
   if (state.settings.pairingMode !== 'normal') {
     btn.textContent = 'Tournament Active';
     btn.disabled    = true;
     btn.title       = 'Use Tournament card to manage rounds';
+    _updatePinsWarning(null);
     return;
   }
 
-  // Game limit check
   if (MAX_TOTAL_GAMES !== null && MAX_TOTAL_GAMES !== Infinity) {
     const existingGames = state.rounds.reduce((sum, r) => sum + r.courts.length, 0);
     if (existingGames >= MAX_TOTAL_GAMES) {
       btn.textContent = `Generate Pairings  (game limit of ${MAX_TOTAL_GAMES} reached)`;
       btn.disabled    = true;
       btn.title       = `Maximum total games (${MAX_TOTAL_GAMES}) reached`;
+      _updatePinsWarning(null);
       return;
     }
   }
 
   const isPartial = document.getElementById('partial-gen')?.checked && state.rounds.length > 0;
-  const preview  = _previewRoundCounts();
+  const preview   = _previewRoundCounts();
+  const ps        = preview?.pinStats;
+
+  // Update inline warning panel
+  _updatePinsWarning(ps && !ps.enough ? ps : null);
+
   let label = 'Generate Pairings';
   if (preview) {
-    const parts = [
-      `${preview.courts} court${preview.courts !== 1 ? 's' : ''}`,
-      `${preview.playing} playing`
-    ];
+    const parts = [`${preview.courts} court${preview.courts !== 1 ? 's' : ''}`];
+    if (ps && ps.pinnedCount > 0) {
+      parts.push(`${ps.pinnedCount} pinned`);
+      parts.push(`${ps.freeEligible} free`);
+    } else {
+      parts.push(`${preview.playing} playing`);
+    }
     if (preview.byes > 0) parts.push(`${preview.byes} bye${preview.byes !== 1 ? 's' : ''}`);
     label += `  (${parts.join(' · ')})`;
   } else if (isPartial) {
@@ -2382,6 +2794,17 @@ function updateGenerateBtn() {
   btn.textContent = label;
   btn.disabled    = !canDo('generate');
   btn.title       = canDo('generate') ? '' : 'Your role cannot generate rounds';
+}
+
+function _updatePinsWarning(ps) {
+  const el = document.getElementById('court-pins-warning');
+  if (!el) return;
+  if (!ps) { el.style.display = 'none'; el.textContent = ''; return; }
+  const need = ps.freePlayersNeeded;
+  const have = ps.freeEligible;
+  const short = need - have;
+  el.textContent = `⚠ Not enough free players to fill all pre-assigned courts. Need ${need} unassigned player${need !== 1 ? 's' : ''}, have ${have}. Remove ${short} pin${short !== 1 ? 's' : ''} or add more players.`;
+  el.style.display = 'block';
 }
 
 // Update the complete/incomplete badges in every round summary without rebuilding the rounds DOM
@@ -2527,6 +2950,7 @@ function onScoreCommit(rIdx, cIdx, team, val, inputEl) {
   renderPlayerReport();
   updateRoundsHint();
   updateEligibilityDots();
+  renderCourtPinInputs();
   updateGenerateBtn();
   const el = document.getElementById(`win-r${rIdx}-c${cIdx}`);
   if (el) el.innerHTML = winnerHTML(court);
@@ -2639,6 +3063,7 @@ function deleteCourt(rIdx, cIdx) {
   renderStandings();
   renderPlayers();
   updateEligibilityDots();
+  updateGenerateBtn();
   netBroadcast();
 }
 
@@ -2748,9 +3173,11 @@ function courtRankBadge(team1ids, team2ids, score1, score2) {
 
 function renderAllRounds() {
   updateDeleteAllRoundsBtn();
+  renderNextMatch();
   const container = document.getElementById('rounds-list');
   if (!state.rounds.length) {
     container.innerHTML = '<div class="empty-state">Generate a round to begin</div>';
+    renderNextMatch(); // also update when no rounds
     return;
   }
 
@@ -2796,16 +3223,19 @@ function renderAllRounds() {
       courtHtml += `
         <div class="court-card">
           <div class="court-header">
-            <span class="court-label" style="display:flex;align-items:center;gap:4px;">Court
+            <span class="court-label" style="display:flex;align-items:center;gap:4px;">
               ${(() => {
                 const maxCourt = Math.max(state.settings.numCourts, round.courts.length, 12);
                 const canEdit = roleAtLeast('scorer');
-                if (!canEdit) return `<span>${c.courtNum}</span>`;
+                if (!canEdit) return `<span>${courtLabel(c.courtNum)}</span>`;
                 let opts = '';
                 for (let cn = 1; cn <= maxCourt; cn++) {
-                  opts += `<option value="${cn}"${cn === c.courtNum ? ' selected' : ''}>${cn}</option>`;
+                  opts += `<option value="${cn}"${cn === c.courtNum ? ' selected' : ''}>${courtLabel(cn)}</option>`;
                 }
-                return `<select class="court-num-sel" tabindex="-1" onchange="changeCourtNum(${idx},${ci},this.value)" style="width:46px;padding:1px 2px;font-size:0.8rem;font-family:var(--font-display);font-weight:700;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:inherit;cursor:pointer;">${opts}</select>`;
+                // Width is dynamic: wider when custom names are in use
+                const hasCustomNames = (state.settings.courtNames || []).some(n => n && n.trim());
+                const selW = hasCustomNames ? '110px' : '72px';
+                return `<select class="court-num-sel" tabindex="-1" onchange="changeCourtNum(${idx},${ci},this.value)" style="width:${selW};padding:1px 4px;font-size:0.8rem;font-family:var(--font-display);font-weight:700;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:inherit;cursor:pointer;">${opts}</select>`;
               })()}
             </span>
             <div class="winner-line" id="win-r${idx}-c${ci}">${winnerHTML(c)}</div>
@@ -2928,6 +3358,152 @@ function renderAllRounds() {
   });
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// MY NEXT MATCH
+// ═══════════════════════════════════════════════════════════════════
+function playerRankLabel(id) {
+  const p = findPlayer(id);
+  if (!p) return '';
+  if (state.settings.rankingMode === 'winPct') {
+    const g = p.wins + p.losses;
+    if (g === 0) return 'no games';
+    return `${(p.wins / g * 100).toFixed(0)}% win`;
+  }
+  return p.initialRanking !== null ? `#${p.initialRanking}` : 'unranked';
+}
+
+function renderNextMatch() {
+  const card  = document.getElementById('next-match-card');
+  const inner = document.getElementById('next-match-inner');
+  const sumEl = document.getElementById('next-match-summary');
+  if (!card || !inner || !sumEl) return;
+
+  // Determine whose perspective to show:
+  // prefer the explicitly-selected "I am" player, fall back to none.
+  const myId = _myPlayerId;
+  const me   = myId ? findPlayer(myId) : null;
+
+  if (!me || !myId) {
+    card.style.display = 'none';
+    return;
+  }
+
+  // Find all unscored courts that include this player, across all rounds.
+  // "Unscored" = at least one score is null (game not yet finished).
+  const upcoming = [];
+  for (let ri = 0; ri < state.rounds.length; ri++) {
+    const round = state.rounds[ri];
+    for (const c of round.courts) {
+      const onCourt = [...c.team1, ...c.team2].filter(Boolean);
+      if (!onCourt.includes(myId)) continue;
+      const scored = c.score1 !== null && c.score2 !== null;
+      if (scored) continue;  // already done
+      upcoming.push({ round, roundIdx: ri, court: c });
+    }
+  }
+
+  card.style.display = '';
+
+  if (!upcoming.length) {
+    inner.innerHTML = `<div class="empty-state" style="padding:10px 0;">No upcoming unscored matches for <strong>${esc(me.name || '(unnamed)')}</strong>.</div>`;
+    sumEl.textContent = '';
+    return;
+  }
+
+  // Collapsed summary: first match info
+  const first = upcoming[0];
+  const firstPartners  = first.court.team1.includes(myId) ? first.court.team1 : first.court.team2;
+  const firstOpponents = first.court.team1.includes(myId) ? first.court.team2 : first.court.team1;
+  const partnerNames   = firstPartners.filter(id => id && id !== myId).map(pname);
+  const oppNames       = firstOpponents.filter(Boolean).map(pname);
+  const firstLabel     = courtLabel(first.court.courtNum);
+  let summaryParts = [`${firstLabel}`];
+  if (partnerNames.length) summaryParts.push(`w/ ${partnerNames.join(' & ')}`);
+  summaryParts.push(`vs ${oppNames.join(' & ')}`);
+  if (upcoming.length > 1) summaryParts.push(`+${upcoming.length - 1} more`);
+  sumEl.textContent = '— ' + summaryParts.join(' · ');
+
+  // Build expanded content — one collapsible block per match
+  let html = '';
+  for (let ui = 0; ui < upcoming.length; ui++) {
+    const { round, roundIdx, court: c } = upcoming[ui];
+    const myTeam  = c.team1.includes(myId) ? c.team1 : c.team2;
+    const oppTeam = c.team1.includes(myId) ? c.team2 : c.team1;
+    const partners  = myTeam.filter(id => id && id !== myId);
+    const opponents = oppTeam.filter(Boolean);
+    const lbl = courtLabel(c.courtNum);
+
+    // Short one-line collapsed summary for each game
+    const partnerStr  = partners.length  ? partners.map(pname).join(' & ')  : '—';
+    const opponentStr = opponents.length ? opponents.map(pname).join(' & ') : '—';
+    const gameTitle   = `Round ${round.roundNum} · ${lbl}`;
+    const gameSummary = partners.length
+      ? `w/ ${partnerStr} vs ${opponentStr}`
+      : `vs ${opponentStr}`;
+
+    // Player chip: name + rank badge
+    function playerChip(id, highlight) {
+      const nm  = esc(pname(id));
+      const rnk = playerRankLabel(id);
+      const bg  = highlight
+        ? 'background:rgba(94,194,106,0.15);border:1px solid rgba(94,194,106,0.35);'
+        : 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);';
+      const nameStyle = highlight ? 'color:var(--green);font-weight:600;' : '';
+      return `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;${bg}font-size:0.82rem;align-self:flex-start;width:fit-content;">
+        <span style="${nameStyle}">${nm}</span>
+        ${rnk ? `<span style="font-size:0.68rem;color:var(--muted);font-family:var(--font-display);">${esc(rnk)}</span>` : ''}
+      </span>`;
+    }
+
+    html += `
+    <details class="round-box" style="margin-bottom:6px;" ${ui === 0 ? 'open' : ''}>
+      <summary style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;list-style:none;border-radius:var(--radius);" class="nm-summary">
+        <span style="font-size:0.6rem;color:var(--muted);transition:transform 0.2s;flex-shrink:0;" class="nm-chevron">▶</span>
+        <span style="font-family:var(--font-display);font-size:0.9rem;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;color:var(--green);">${esc(lbl)}</span>
+        <span style="font-family:var(--font-display);font-size:0.78rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--muted);">Round ${round.roundNum}</span>
+        <span style="font-size:0.78rem;color:var(--muted);margin-left:2px;">${esc(gameSummary)}</span>
+      </summary>
+      <div style="padding:10px 14px 12px;">
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;">
+
+          <!-- My team -->
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="font-size:0.62rem;color:var(--muted);font-family:var(--font-display);font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:2px;">Your Team</div>
+            ${playerChip(myId, true)}
+            ${partners.map(id => playerChip(id, false)).join('')}
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:2px;">Avg: ${teamRatingLabel(myTeam.filter(Boolean))}</div>
+          </div>
+
+          <!-- VS divider -->
+          <div style="text-align:center;">
+            <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;letter-spacing:0.1em;color:var(--muted);">VS</div>
+          </div>
+
+          <!-- Opponents -->
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;text-align:right;">
+            <div style="font-size:0.62rem;color:var(--muted);font-family:var(--font-display);font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:2px;">Opponents</div>
+            ${opponents.map(id => playerChip(id, false)).join('')}
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:2px;">Avg: ${teamRatingLabel(opponents)}</div>
+          </div>
+
+        </div>
+      </div>
+    </details>`;
+  }
+
+  inner.innerHTML = html;
+
+  // Rotate chevrons for open/closed state
+  inner.querySelectorAll('details').forEach(det => {
+    const chev = det.querySelector('.nm-chevron');
+    if (chev) chev.style.transform = det.open ? 'rotate(90deg)' : '';
+    det.addEventListener('toggle', () => {
+      if (chev) chev.style.transform = det.open ? 'rotate(90deg)' : '';
+    });
+  });
+}
+
 function renderStandings() {
   const tbody = document.getElementById('standings-tbody');
   const standingsPlayers = state.players.filter(p => !p.removed || (p.wins + p.losses) > 0);
@@ -2987,7 +3563,7 @@ function printRound() {
         ? `<span class="pt-box filled">${v}</span>`
         : `<span class="pt-box"></span>`;
       html += `<div class="pt-court">
-        <div class="pt-court-lbl">Court ${c.courtNum}</div>
+        <div class="pt-court-lbl">${courtLabel(c.courtNum)}</div>
         <div class="pt-matchup">
           <div class="pt-team">${esc(c.team1.map(pname).join(' / '))}</div>
           <div class="pt-scores">${box(c.score1)}<span class="pt-dash"> — </span>${box(c.score2)}</div>
@@ -3530,6 +4106,8 @@ function exportData() {
       rankingMode: state.settings.rankingMode,
       pairingMode: state.settings.pairingMode,
       groupName:   state.settings.groupName,
+      courtNames:  state.settings.courtNames || [],
+      courtPins:   state.settings.courtPins  || [],
       weights:     getWeights()
     },
     players: state.players, rounds: state.rounds, _nextId,
@@ -3620,6 +4198,8 @@ function applyImportData(d, mode) {
     if (s.mode)        { state.settings.mode         = s.mode;        document.getElementById('game-mode').value    = s.mode; }
     if (s.rankingMode) { state.settings.rankingMode  = s.rankingMode; document.getElementById('ranking-mode').value = s.rankingMode; }
     if (s.groupName !== undefined) { state.settings.groupName = s.groupName; document.getElementById('group-name').value = s.groupName; }
+    if (s.courtNames !== undefined) { state.settings.courtNames = s.courtNames || []; }
+    if (s.courtPins  !== undefined) { state.settings.courtPins  = s.courtPins  || []; }
     if (s.pairingMode) {
       state.settings.pairingMode = s.pairingMode;
       const pmSel = document.getElementById('pairing-mode');
@@ -3647,10 +4227,9 @@ function applyImportData(d, mode) {
   updateWeightsHint();
   updateRoundsHint();
   updateStandingsGroupLabel();
+  renderCourtNameInputs();
+  renderCourtPinInputs();
   updatePairingModeUI();
-  netBroadcast();
-
-  const modeLabel = mode === 'roster' ? 'Roster & settings' : 'Full data';
   showToast(`${modeLabel} imported successfully`, 'success');
 }
 
@@ -4234,6 +4813,26 @@ function renderTournamentCard() {
 // ═══════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════
+
+// Restore last session from localStorage before first render
+(function restoreSession() {
+  const restored = loadFromLocalStorage();
+  if (!restored) return;
+  const s = state.settings;
+  document.getElementById('num-courts').value   = s.numCourts   || 2;
+  document.getElementById('game-mode').value    = s.mode        || 'doubles';
+  document.getElementById('ranking-mode').value = s.rankingMode || 'winPct';
+  document.getElementById('group-name').value   = s.groupName   || '';
+  const pmSel = document.getElementById('pairing-mode');
+  if (pmSel) pmSel.value = s.pairingMode || 'normal';
+  if (state.rounds.length) {
+    document.getElementById('print-round-btn').disabled = false;
+  }
+  recalcWinLoss();
+  updateRoundSelector();
+  if (state.rounds.length) renderAllRounds();
+})();
+
 renderPlayers();
 renderStandings();
 updateSettingsHint();
@@ -4242,6 +4841,8 @@ updateRoundsHint();
 updateStandingsGroupLabel();
 applyLockUI();
 updatePairingModeUI();
+renderCourtNameInputs();
+renderCourtPinInputs();
 updateMyPlayerDisplay();
 
 const _urlCode = new URLSearchParams(window.location.search).get('code');
@@ -4282,7 +4883,7 @@ if (JOIN_ONLY) {
   // are only useful once the user joins a session.  They will reappear via
   // applyLockUI() once the role is established.
   const hideIds = ['settings-card', 'players-card', 'weights-card', 'rounds-card',
-                    'standings-card', 'rank-trend-card', 'report-card', 'tournament-card'];
+                    'next-match-card', 'standings-card', 'rank-trend-card', 'report-card', 'tournament-card'];
   for (const id of hideIds) {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -4320,6 +4921,7 @@ function updateMyPlayerDisplay() {
     disp.style.color = 'var(--muted)';
   }
   updateNotifUI();
+  renderNextMatch();
 }
 
 function updateMyPlayerSelector() {
